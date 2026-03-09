@@ -23,6 +23,21 @@ const STARS = Array.from({ length: 60 }, (_, i) => ({
   opacity: ((i * 7 + 1) % 6) / 10 + 0.2,
 }));
 
+const TREES = Array.from({ length: 10 }, (_, i) => {
+  const left = ((i * 23 + 11) % 88) + 4;
+  const trunkHeight = ((i * 7 + 5) % 8) + 12;
+  const canopySize = ((i * 11 + 3) % 10) + 16;
+  const bottom = 14.9 + (((i * 5 + 2) % 3) - 1) * 0.2;
+
+  return {
+    id: i,
+    left,
+    bottom,
+    trunkHeight,
+    canopySize,
+  };
+});
+
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [kingColor, setKingColor] = useState(DEFAULT_KING_COLOR);
@@ -167,23 +182,51 @@ export default function Home() {
           What color are the lights tonight? Explore the history, submit your photos, and see how the colors have changed over time.
         </p>
 
-        {/* Buildings */}
-        <div className="relative z-10 mb-2 md:mb-4">
-          <BuildingDisplay kingColor={kingColor} queenColor={queenColor} />
+        {/* Buildings + contextual backdrop */}
+        <div className="relative z-10 mb-2 md:mb-4 w-full max-w-5xl flex justify-center">
+          {/* Ground + greenery + skyline behind building base */}
+          <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+            {/* Single soft skyline layer with varied heights */}
+            <div className="absolute inset-x-10 md:inset-x-16 bottom-[20%] h-20 md:h-24 text-sky-300/40 dark:text-slate-700/45">
+              <svg viewBox="0 0 1000 180" className="h-full w-full fill-current" preserveAspectRatio="none">
+                <path d="M0 180V132h74V104h52v28h84V88h44v44h70V72h58v60h62V58h42v74h86V94h50v38h72V64h44v68h78V100h48v32h66V82h52v50h68V108h44v24h60v48H0z" />
+              </svg>
+            </div>
+
+            {/* Single greenery band */}
+            <div className="absolute inset-x-8 md:inset-x-16 bottom-[15.4%] h-5 md:h-6 rounded-full bg-emerald-500/45 dark:bg-emerald-700/45" />
+
+            {/* Visible tree silhouettes (more randomized placements) */}
+            {TREES.map((tree) => (
+              <div
+                key={tree.id}
+                className="absolute h-10 w-8 md:h-12 md:w-10"
+                style={{ left: `${tree.left}%`, bottom: `${tree.bottom}%` }}
+              >
+                <div
+                  className="absolute left-1/2 -translate-x-1/2 bottom-0 w-[2px] md:w-[3px] bg-emerald-900/70 dark:bg-emerald-950/75"
+                  style={{ height: `${tree.trunkHeight + 1}px` }}
+                />
+                <div
+                  className="absolute left-1/2 -translate-x-1/2 rounded-full bg-emerald-600/80 dark:bg-emerald-500/75"
+                  style={{
+                    width: `${tree.canopySize}px`,
+                    height: `${tree.canopySize}px`,
+                    bottom: `${tree.trunkHeight}px`,
+                  }}
+                />
+              </div>
+            ))}
+
+            {/* Ground aligned to building silhouette base line */}
+            <div className="absolute inset-x-8 md:inset-x-16 bottom-[14.3%] h-[6px] md:h-2 rounded-full bg-emerald-700/45 dark:bg-slate-500/45" />
+          </div>
+
+          <div className="relative z-10">
+            <BuildingDisplay kingColor={kingColor} queenColor={queenColor} />
+          </div>
         </div>
 
-        {/* City skyline silhouette */}
-        <div className="relative z-10 w-full -mt-12 md:-mt-14 overflow-hidden pointer-events-none" aria-hidden="true">
-          <svg
-            viewBox="0 0 1200 120"
-            preserveAspectRatio="none"
-            className="w-full h-24 md:h-28 opacity-20"
-            fill="#1e293b"
-          >
-            {/* Generic city skyline silhouette */}
-            <path d="M0,120 L0,80 L30,80 L30,60 L50,60 L50,40 L70,40 L70,30 L90,30 L90,50 L110,50 L110,60 L140,60 L140,20 L160,20 L160,10 L180,10 L180,20 L200,20 L200,60 L230,60 L230,50 L250,50 L250,35 L270,35 L270,50 L290,50 L290,70 L320,70 L320,45 L340,45 L340,30 L360,30 L360,45 L380,45 L380,70 L410,70 L410,55 L430,55 L430,40 L450,40 L450,55 L470,55 L470,75 L500,75 L500,50 L520,50 L520,30 L540,30 L540,15 L560,15 L560,30 L580,30 L580,50 L610,50 L610,65 L640,65 L640,45 L660,45 L660,65 L690,65 L690,80 L720,80 L720,55 L740,55 L740,40 L760,40 L760,55 L780,55 L780,75 L810,75 L810,55 L830,55 L830,35 L850,35 L850,55 L870,55 L870,70 L900,70 L900,50 L920,50 L920,35 L940,35 L940,50 L960,50 L960,65 L990,65 L990,80 L1020,80 L1020,60 L1040,60 L1040,40 L1060,40 L1060,60 L1080,60 L1080,75 L1110,75 L1110,55 L1130,55 L1130,70 L1160,70 L1160,80 L1200,80 L1200,120 Z" />
-          </svg>
-        </div>
       </section>
 
       {/* ── Time Slider ────────────────────────────────────── */}
