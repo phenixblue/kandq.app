@@ -15,10 +15,36 @@ export default function PhotoUpload({ userId, onSuccess, onClose }: PhotoUploadP
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [showDebugOverlay, setShowDebugOverlay] = useState(false);
+  const [showStrongOnly, setShowStrongOnly] = useState(false);
+  const [previewMetrics, setPreviewMetrics] = useState<{
+    offsetX: number;
+    offsetY: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const previewImageRef = useRef<HTMLImageElement>(null);
+
+  const updatePreviewMetrics = useCallback(() => {
+    const container = previewContainerRef.current;
+    const image = previewImageRef.current;
+    if (!container || !image) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const imageRect = image.getBoundingClientRect();
+
+    setPreviewMetrics({
+      offsetX: Math.max(0, imageRect.left - containerRect.left),
+      offsetY: Math.max(0, imageRect.top - containerRect.top),
+      width: imageRect.width,
+      height: imageRect.height,
+    });
+  }, []);
 
   const handleFileChange = useCallback(async (selectedFile: File) => {
     if (!selectedFile.type.startsWith('image/')) {
@@ -33,6 +59,9 @@ export default function PhotoUpload({ userId, onSuccess, onClose }: PhotoUploadP
     setFile(selectedFile);
     setError(null);
     setAnalysisResult(null);
+    setShowDebugOverlay(false);
+    setShowStrongOnly(false);
+    setPreviewMetrics(null);
 
     const objectUrl = URL.createObjectURL(selectedFile);
     setPreview(objectUrl);
@@ -165,12 +194,86 @@ export default function PhotoUpload({ userId, onSuccess, onClose }: PhotoUploadP
         {/* Preview */}
         {preview && (
           <div className="space-y-4">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={preview}
-              alt="Preview"
-              className="w-full rounded-xl object-cover max-h-64"
-            />
+            <div
+              ref={previewContainerRef}
+              className="relative w-full rounded-xl overflow-hidden bg-black/20 flex justify-center"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                ref={previewImageRef}
+                src={preview}
+                alt="Preview"
+                className="block w-auto h-auto max-w-full max-h-80 object-contain"
+                onLoad={updatePreviewMetrics}
+              />
+
+              {showDebugOverlay && analysisResult?.debug && previewMetrics && (
+                <div className="absolute inset-0 pointer-events-none">
+                  {analysisResult.debug.pixels
+                    .filter((pixel) => (showStrongOnly ? pixel.used : true))
+                    .map((pixel, index) => {
+                      const { canvasWidth, canvasHeight } = analysisResult.debug as NonNullable<AnalysisResult['debug']>;
+                      const left = previewMetrics.offsetX + (pixel.x / canvasWidth) * previewMetrics.width;
+                      const top = previewMetrics.offsetY + (pixel.y / canvasHeight) * previewMetrics.height;
+
+                      return (
+                        <div
+                          key={`px-${pixel.building}-${pixel.label}-${index}`}
+                          className="absolute rounded-full"
+                          style={{
+                            left: `${left}px`,
+                            top: `${top}px`,
+                            width: '3px',
+                            height: '3px',
+                            backgroundColor: pixel.used
+                              ? (pixel.building === 'king' ? '#22c55e' : '#0ea5e9')
+                              : '#94a3b8',
+                            opacity: pixel.used ? 0.85 : 0.45,
+                            transform: 'translate(-50%, -50%)',
+                          }}
+                        />
+                      );
+                    })}
+
+                  {analysisResult.debug.regions
+                    .filter((region) => {
+                      const isStrong = region.saturation >= 20 && region.coloredPixels >= 12;
+                      return showStrongOnly ? isStrong : true;
+                    })
+                    .map((region, index) => {
+                      const { canvasWidth, canvasHeight } = analysisResult.debug as NonNullable<AnalysisResult['debug']>;
+                      const left = previewMetrics.offsetX + (region.x / canvasWidth) * previewMetrics.width;
+                      const top = previewMetrics.offsetY + (region.y / canvasHeight) * previewMetrics.height;
+                      const width = (region.width / canvasWidth) * previewMetrics.width;
+                      const height = (region.height / canvasHeight) * previewMetrics.height;
+                      const isStrong = region.saturation >= 20 && region.coloredPixels >= 12;
+                      const borderColor = region.building === 'king' ? '#a855f7' : '#f59e0b';
+
+                      return (
+                        <div
+                          key={`${region.building}-${region.label}-${index}`}
+                          className="absolute"
+                          style={{
+                            left: `${left}px`,
+                            top: `${top}px`,
+                            width: `${width}px`,
+                            height: `${height}px`,
+                            border: `2px solid ${borderColor}`,
+                            backgroundColor: isStrong ? `${borderColor}22` : `${borderColor}10`,
+                          }}
+                          title={`${region.building} ${region.label} · sat ${Math.round(region.saturation)} · px ${region.coloredPixels}`}
+                        >
+                          <div
+                            className="absolute -top-4 left-0 text-[10px] leading-none px-1 py-0.5 rounded-sm text-white/90 bg-black/60"
+                          >
+                            {region.building}:{region.label}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
 
             {analyzing && (
               <div className="flex items-center gap-2 text-purple-400">
@@ -182,6 +285,89 @@ export default function PhotoUpload({ userId, onSuccess, onClose }: PhotoUploadP
             {analysisResult && (
               <div className="bg-gray-800 rounded-xl p-4 space-y-3">
                 <p className="text-sm font-semibold text-gray-300">Analysis Result</p>
+
+                {analysisResult.debug && (
+                  <div className="space-y-2">
+                    <label className="inline-flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showDebugOverlay}
+                        onChange={(e) => setShowDebugOverlay(e.target.checked)}
+                      />
+                      Show debug sample regions
+                    </label>
+                    {showDebugOverlay && (
+                      <div className="space-y-2">
+                        <label className="inline-flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={showStrongOnly}
+                            onChange={(e) => setShowStrongOnly(e.target.checked)}
+                          />
+                          Show strong regions only
+                        </label>
+
+                        <div className="flex flex-wrap gap-3 text-[11px] text-gray-400">
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
+                            Used King pixels
+                          </span>
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-sky-500" />
+                            Used Queen pixels
+                          </span>
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-slate-400" />
+                            Weak/unused pixels
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="pt-1">
+                      <p className="text-[11px] text-gray-500 mb-1">Sample legend</p>
+                      <div className="max-h-36 overflow-y-auto rounded-md border border-gray-700 bg-gray-900/40">
+                        {analysisResult.debug.regions
+                          .filter((region) => {
+                            const isStrong = region.saturation >= 20 && region.coloredPixels >= 12;
+                            return showStrongOnly ? isStrong : true;
+                          })
+                          .map((region, index) => {
+                            const isStrong = region.saturation >= 20 && region.coloredPixels >= 12;
+                            return (
+                              <div
+                                key={`legend-${region.building}-${region.label}-${index}`}
+                                className="flex items-center gap-2 px-2 py-1 border-b border-gray-800 last:border-b-0"
+                              >
+                                <div
+                                  className="w-3.5 h-3.5 rounded-sm border border-white/20"
+                                  style={{ backgroundColor: region.sampleColor }}
+                                />
+                                <span className="text-[11px] text-gray-300 min-w-[88px]">
+                                  {region.building}:{region.label}
+                                </span>
+                                <span className="text-[11px] text-gray-400 font-mono min-w-[68px]">
+                                  {region.sampleColor}
+                                </span>
+                                <span className="text-[11px] text-gray-500">
+                                  sat {Math.round(region.saturation)} · px {region.coloredPixels}
+                                </span>
+                                <span
+                                  className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full border ${
+                                    isStrong
+                                      ? 'text-green-300 border-green-700/70 bg-green-900/30'
+                                      : 'text-gray-400 border-gray-600 bg-gray-800/60'
+                                  }`}
+                                >
+                                  {isStrong ? 'used' : 'weak'}
+                                </span>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-3">
                   <span
@@ -197,6 +383,35 @@ export default function PhotoUpload({ userId, onSuccess, onClose }: PhotoUploadP
                     Confidence: {Math.round(analysisResult.confidence * 100)}%
                   </span>
                 </div>
+
+                {analysisResult.diagnostics && (
+                  <div className="rounded-lg border border-gray-700 bg-gray-900/40 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-gray-300">Detection diagnostics</p>
+
+                    {[analysisResult.diagnostics.king, analysisResult.diagnostics.queen].map((diag) => (
+                      <div key={diag.building} className="text-xs">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="uppercase tracking-wide text-gray-400 min-w-12">{diag.building}</span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded-full border ${
+                              diag.passed
+                                ? 'text-green-300 border-green-700/70 bg-green-900/30'
+                                : 'text-red-300 border-red-700/70 bg-red-900/30'
+                            }`}
+                          >
+                            {diag.passed ? 'pass' : 'fail'}
+                          </span>
+                          <span className="text-gray-500">
+                            sat {Math.round(diag.saturation)} · px {diag.coloredPixels} · blobs {diag.selectedComponents}/{diag.candidateComponents}
+                          </span>
+                        </div>
+                        {!diag.passed && (
+                          <p className="text-gray-400 ml-14">{diag.reason}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {analysisResult.isValid && (
                   <div className="flex gap-4">
@@ -225,6 +440,9 @@ export default function PhotoUpload({ userId, onSuccess, onClose }: PhotoUploadP
                   setFile(null);
                   setPreview(null);
                   setAnalysisResult(null);
+                  setShowDebugOverlay(false);
+                  setShowStrongOnly(false);
+                  setPreviewMetrics(null);
                   setError(null);
                   if (fileInputRef.current) fileInputRef.current.value = '';
                 }}
