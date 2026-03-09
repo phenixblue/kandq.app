@@ -10,8 +10,8 @@ interface TimeSliderProps {
   currentQueenColor: string;
 }
 
-const DEFAULT_KING = '#7C3AED';
-const DEFAULT_QUEEN = '#D97706';
+const DEFAULT_KING = '#FFFFFF';
+const DEFAULT_QUEEN = '#FFFFFF';
 
 export default function TimeSlider({
   onColorsChange,

@@ -96,37 +96,46 @@ export default function PhotoGallery({ userId, refreshKey, onColorsUpdate }: Pho
       })
     );
 
-    if (existingVote === vote) {
-      setUserVotes((prev) => {
-        const next = { ...prev };
-        delete next[photoId];
-        return next;
-      });
-      await supabase.from('votes').delete().eq('user_id', userId).eq('photo_id', photoId);
-    } else {
-      setUserVotes((prev) => ({ ...prev, [photoId]: vote }));
-      await supabase.from('votes').upsert(
-        { user_id: userId, photo_id: photoId, vote },
-        { onConflict: 'user_id,photo_id' }
-      );
-    }
-
-    // Re-sync with server after vote
-    const { data } = await supabase
-      .from('photos')
-      .select('*')
-      .eq('is_valid', true)
-      .order('vote_score', { ascending: false })
-      .limit(30);
-
-    if (data) {
-      const photoList = data as Photo[];
-      setPhotos(photoList);
-      if (photoList.length > 0 && onColorsUpdate) {
-        const top = photoList[0];
-        if (top.king_color && top.queen_color) {
-          onColorsUpdate(top.king_color, top.queen_color);
+    try {
+      if (existingVote === vote) {
+        // Remove the vote
+        setUserVotes((prev) => {
+          const next = { ...prev };
+          delete next[photoId];
+          return next;
+        });
+        await fetch('/api/votes', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ photo_id: photoId, user_id: userId }),
+        });
+      } else {
+        // Add or update the vote
+        setUserVotes((prev) => ({ ...prev, [photoId]: vote }));
+        const response = await fetch('/api/votes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ photo_id: photoId, user_id: userId, vote }),
+        });
+        const result = await response.json();
+        if (response.ok && result.vote_score !== undefined) {
+          // Update the photo with the server-calculated vote_score
+          setPhotos((prev) =>
+            prev.map((p) => (p.id === photoId ? { ...p, vote_score: result.vote_score } : p))
+          );
         }
+      }
+    } catch (err) {
+      console.error('Vote error:', err);
+      // Revert optimistic update on error
+      const { data } = await supabase
+        .from('photos')
+        .select('*')
+        .eq('is_valid', true)
+        .order('vote_score', { ascending: false })
+        .limit(30);
+      if (data) {
+        setPhotos(data as Photo[]);
       }
     }
   };

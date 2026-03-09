@@ -8,9 +8,10 @@ import AuthModal from '@/components/AuthModal';
 import PhotoUpload from '@/components/PhotoUpload';
 import PhotoGallery from '@/components/PhotoGallery';
 import TimeSlider from '@/components/TimeSlider';
+import ThemeToggle from '@/components/ThemeToggle';
 
-const DEFAULT_KING_COLOR = '#7C3AED';
-const DEFAULT_QUEEN_COLOR = '#D97706';
+const DEFAULT_KING_COLOR = '#FFFFFF';
+const DEFAULT_QUEEN_COLOR = '#FFFFFF';
 
 // Pre-computed star positions (module-level, not computed during render)
 const STARS = Array.from({ length: 60 }, (_, i) => ({
@@ -80,7 +81,7 @@ export default function Home() {
                 aria-label={`Queen building light color: ${queenColor}`}
               />
             </div>
-            <span className="font-bold text-xl tracking-tight text-white">KANDQ</span>
+            <span className="font-bold text-xl tracking-tight">KANDQ</span>
             <span className="hidden sm:inline text-gray-500 text-sm">King &amp; Queen</span>
           </div>
 
@@ -93,6 +94,8 @@ export default function Home() {
             >
               About the Buildings
             </a>
+
+            <ThemeToggle />
 
             {!configured && (
               <span className="text-xs text-amber-400 bg-amber-900/20 px-2 py-1 rounded-full border border-amber-700/40">
@@ -132,9 +135,9 @@ export default function Home() {
       </header>
 
       {/* ── Hero / Building Display ─────────────────────────── */}
-      <section className="relative flex flex-col items-center justify-center pt-16 pb-8 px-4 overflow-hidden">
-        {/* Starfield background */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+      <section className="relative flex flex-col items-center justify-center min-h-[620px] md:min-h-[720px] pt-12 pb-0 px-4 overflow-hidden">
+        {/* Starfield background - hidden in light mode */}
+        <div className="absolute inset-x-0 top-0 h-[72%] overflow-hidden pointer-events-none" aria-hidden="true">
           {STARS.map((star) => (
             <div
               key={star.id}
@@ -151,22 +154,24 @@ export default function Home() {
         </div>
 
         {/* Title */}
-        <h1 className="text-center mb-2 text-gray-400 text-sm tracking-[0.3em] uppercase font-medium">
-          Concourse Corporate Center · Sandy Springs, GA
+        <h1 className="relative z-10 text-center mb-2 text-gray-400 text-sm tracking-[0.3em] uppercase font-medium">
+          The King and Queen · Sandy Springs, GA
         </h1>
-        <p className="text-center text-white/30 text-xs mb-10 max-w-sm">
-          Showing colors from the highest-rated photo submission
+        <p className="relative z-10 text-center text-gray30 text-xs mb-16 md:mb-20 max-w-sm">
+          What color are the lights tonight? Explore the history, submit your photos, and see how the colors have changed over time.
         </p>
 
         {/* Buildings */}
-        <BuildingDisplay kingColor={kingColor} queenColor={queenColor} />
+        <div className="relative z-10 mb-2 md:mb-4">
+          <BuildingDisplay kingColor={kingColor} queenColor={queenColor} />
+        </div>
 
         {/* City skyline silhouette */}
-        <div className="w-full mt-4 overflow-hidden" aria-hidden="true">
+        <div className="relative z-10 w-full -mt-12 md:-mt-14 overflow-hidden pointer-events-none" aria-hidden="true">
           <svg
             viewBox="0 0 1200 120"
             preserveAspectRatio="none"
-            className="w-full h-20 opacity-20"
+            className="w-full h-24 md:h-28 opacity-20"
             fill="#1e293b"
           >
             {/* Generic city skyline silhouette */}
@@ -247,12 +252,12 @@ export default function Home() {
         <p>
           KANDQ ·{' '}
           <a
-            href="https://www.concourse-atl.com/"
+            href=""
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-gray-400 transition-colors"
           >
-            Concourse Corporate Center
+            The Webroot, LLC.
           </a>{' '}
           · Sandy Springs, GA
         </p>

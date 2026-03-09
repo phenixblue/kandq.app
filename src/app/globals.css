@@ -5,10 +5,23 @@
   --foreground: #f1f5f9;
 }
 
+html[data-theme="light"] {
+  --background: #ffffff;
+  --foreground: #1f2937;
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  --background: #07080f;
+  --foreground: #f1f5f9;
+  color-scheme: dark;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* Smooth color transitions on building glow */
@@ -46,5 +59,17 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
   border: 2px solid white;
   box-shadow: 0 0 8px #7c3aed88;
+}
+
+html[data-theme="light"] input[type="range"] {
+  background: #d1d5db;
+}
+
+html[data-theme="light"] input[type="range"]::-webkit-slider-thumb {
+  border-color: #374151;
+}
+
+html[data-theme="light"] input[type="range"]::-moz-range-thumb {
+  border-color: #374151;
 }
 

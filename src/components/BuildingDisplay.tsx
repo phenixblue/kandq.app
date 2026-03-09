@@ -20,7 +20,7 @@ export default function BuildingDisplay({ kingColor, queenColor }: BuildingDispl
             style={{
               width: '220px',
               height: '220px',
-              bottom: '30px',
+              top: '-50px',
               background: `radial-gradient(circle, ${kingColor}cc 0%, ${kingColor}44 45%, transparent 70%)`,
               filter: 'blur(8px)',
               transform: 'translateX(-50%)',
@@ -32,7 +32,7 @@ export default function BuildingDisplay({ kingColor, queenColor }: BuildingDispl
             style={{
               width: '180px',
               height: '180px',
-              bottom: '50px',
+              top: '-40px',
               backgroundColor: `${kingColor}33`,
               borderColor: `${kingColor}88`,
               transform: 'translateX(-50%)',
@@ -40,7 +40,7 @@ export default function BuildingDisplay({ kingColor, queenColor }: BuildingDispl
             }}
           />
           {/* Building silhouette */}
-          <KingBuildingSVG className="relative z-10 w-28 md:w-36 text-gray-900 dark:text-gray-950 drop-shadow-lg" />
+          <KingBuildingSVG className="relative z-10 w-36 md:w-48 text-gray-900 dark:text-gray-700 drop-shadow-lg" />
         </div>
         <span className="text-sm font-semibold tracking-widest uppercase text-gray-400">
           King
@@ -61,7 +61,7 @@ export default function BuildingDisplay({ kingColor, queenColor }: BuildingDispl
             style={{
               width: '220px',
               height: '220px',
-              bottom: '30px',
+              top: '-50px',
               background: `radial-gradient(circle, ${queenColor}cc 0%, ${queenColor}44 45%, transparent 70%)`,
               filter: 'blur(8px)',
               transform: 'translateX(-50%)',
@@ -73,7 +73,7 @@ export default function BuildingDisplay({ kingColor, queenColor }: BuildingDispl
             style={{
               width: '180px',
               height: '180px',
-              bottom: '50px',
+              top: '-40px',
               backgroundColor: `${queenColor}33`,
               borderColor: `${queenColor}88`,
               transform: 'translateX(-50%)',
@@ -81,7 +81,7 @@ export default function BuildingDisplay({ kingColor, queenColor }: BuildingDispl
             }}
           />
           {/* Building silhouette */}
-          <QueenBuildingSVG className="relative z-10 w-28 md:w-36 text-gray-900 dark:text-gray-950 drop-shadow-lg" />
+          <QueenBuildingSVG className="relative z-10 w-36 md:w-48 text-gray-900 dark:text-gray-700 drop-shadow-lg" />
         </div>
         <span className="text-sm font-semibold tracking-widest uppercase text-gray-400">
           Queen
