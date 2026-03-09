@@ -47,10 +47,12 @@ Required:
 Recommended for production/server routes:
 
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `ADMIN_EMAILS` (comma-separated admin email allowlist for `/admin`)
 
 Notes:
 - Client-side code uses the public URL + anon key.
 - API routes currently fall back to anon key if `SUPABASE_SERVICE_ROLE_KEY` is not set; for production, set the service role key explicitly.
+- Admin API routes require both `SUPABASE_SERVICE_ROLE_KEY` and `ADMIN_EMAILS`.
 
 ---
 
@@ -130,6 +132,16 @@ Build command and start behavior are already standard Next.js (`next build`, `ne
 ---
 
 ## Configuration Changes You May Want
+
+### Admin Dashboard
+
+- Admin UI is available at `/admin`.
+- Current capabilities:
+   - list submitted photos
+   - run on-demand debug analysis
+   - delete photos (DB + storage object)
+   - mark a selected photo as top-ranked for a specific day (updates `color_history`)
+- Access control is email allowlist based via `ADMIN_EMAILS`.
 
 ### Visual Defaults
 
