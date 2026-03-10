@@ -57,6 +57,7 @@ export async function POST(req: NextRequest) {
         {
           date,
           reason: reason.reason_text,
+          reason_locked: true,
           updated_at: new Date().toISOString(),
         },
         {
@@ -108,9 +109,10 @@ export async function DELETE(req: NextRequest) {
 
     const { data: targetRow, error: targetError } = await supabase
       .from('color_history')
-      .select('id, photo_id')
+      .select('id, photo_id, photo_locked')
       .eq('date', date)
       .eq('reason', reason.reason_text)
+      .eq('reason_locked', true)
       .maybeSingle();
 
     if (targetError) {
@@ -121,11 +123,12 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: true, date, removed: false }, { status: 200 });
     }
 
-    if (targetRow.photo_id) {
+    if (targetRow.photo_locked) {
       const { error: clearError } = await supabase
         .from('color_history')
         .update({
           reason: null,
+          reason_locked: false,
           updated_at: new Date().toISOString(),
         })
         .eq('id', targetRow.id);

@@ -59,6 +59,45 @@ interface AdminReason {
   submitted_at: string;
 }
 
+interface AdminStatsOverall {
+  totalPhotos: number;
+  validPhotos: number;
+  totalReasons: number;
+  validReasons: number;
+  totalPhotoVotes: number;
+  totalReasonVotes: number;
+  totalDatesWithPhotos: number;
+  totalDatesWithReasons: number;
+  totalUniqueSubmitters: number;
+  totalPhotoLockedDates: number;
+  totalReasonLockedDates: number;
+  averagePhotoVotesPerPhoto: number;
+  averageReasonVotesPerReason: number;
+  highestPhotoScore: number;
+  highestReasonNetScore: number;
+}
+
+interface AdminStatsByDate {
+  date: string;
+  photosSubmitted: number;
+  validPhotos: number;
+  reasonsSubmitted: number;
+  validReasons: number;
+  photoVotesCast: number;
+  reasonVotesCast: number;
+  averagePhotoScore: number;
+  averageReasonNetScore: number;
+  photoTopLocked: boolean;
+  reasonTopLocked: boolean;
+  topPhotoId: string | null;
+  topReasonText: string | null;
+}
+
+interface AdminStatsResponse {
+  overall: AdminStatsOverall;
+  byDate: AdminStatsByDate | null;
+}
+
 function ManualReasonSection() {
   const [selectedDate, setSelectedDate] = useState<string>(todayDateInput());
   const [reasonText, setReasonText] = useState('');
@@ -449,7 +488,9 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [reasons, setReasons] = useState<AdminReason[]>([]);
-  const [activeTab, setActiveTab] = useState<'photos' | 'reasons'>('photos');
+  const [activeTab, setActiveTab] = useState<'photos' | 'reasons' | 'stats'>('photos');
+  const [statsDate, setStatsDate] = useState(todayDateInput());
+  const [stats, setStats] = useState<AdminStatsResponse | null>(null);
   const [busyById, setBusyById] = useState<Record<string, boolean>>({});
   const [topDateById, setTopDateById] = useState<Record<string, string>>({});
   const [topReasonDateById, setTopReasonDateById] = useState<Record<string, string>>({});
@@ -487,7 +528,7 @@ export default function AdminPage() {
   const loadTopSelections = useCallback(async () => {
     const { data, error: fetchError } = await supabase
       .from('color_history')
-      .select('date, photo_id, reason')
+      .select('date, photo_id, reason, photo_locked, reason_locked')
       .limit(365);
 
     if (fetchError) {
@@ -498,10 +539,10 @@ export default function AdminPage() {
     const nextReasonByDate: Record<string, string> = {};
 
     for (const row of data || []) {
-      if (row.date && row.photo_id) {
+      if (row.date && row.photo_id && row.photo_locked) {
         nextPhotoByDate[row.date] = row.photo_id;
       }
-      if (row.date && row.reason) {
+      if (row.date && row.reason && row.reason_locked) {
         nextReasonByDate[row.date] = row.reason;
       }
     }
@@ -621,13 +662,37 @@ export default function AdminPage() {
     }
   }, [activeTab, loadTopSelections]);
 
+  const loadStats = useCallback(async () => {
+    if (activeTab !== 'stats') return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await authedFetch(`/api/admin/stats?date=${encodeURIComponent(statsDate)}`);
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || 'Failed to load statistics.');
+      }
+
+      setStats(payload as AdminStatsResponse);
+    } catch (fetchError: unknown) {
+      setError(fetchError instanceof Error ? fetchError.message : 'Failed to load statistics.');
+    } finally {
+      setLoading(false);
+    }
+  }, [activeTab, authedFetch, statsDate]);
+
   useEffect(() => {
     if (activeTab === 'photos') {
       void loadPhotos();
-    } else {
+    } else if (activeTab === 'reasons') {
       void loadReasons();
+    } else {
+      void loadStats();
     }
-  }, [loadPhotos, loadReasons, activeTab]);
+  }, [loadPhotos, loadReasons, loadStats, activeTab]);
 
   const handleDelete = async (photoId: string) => {
     const confirmed = window.confirm('Delete this photo and its storage object? This cannot be undone.');
@@ -888,7 +953,10 @@ export default function AdminPage() {
     if (activeTab === 'photos') {
       return `${photos.length} photo${photos.length === 1 ? '' : 's'}`;
     }
-    return `${reasons.length} reason${reasons.length === 1 ? '' : 's'}`;
+    if (activeTab === 'reasons') {
+      return `${reasons.length} reason${reasons.length === 1 ? '' : 's'}`;
+    }
+    return 'Statistics';
   }, [loading, photos.length, reasons.length, activeTab]);
 
   return (
@@ -927,7 +995,11 @@ export default function AdminPage() {
         <div className="flex items-center gap-3">
           <span className="text-xs text-[var(--muted-foreground)]">{photoCountLabel}</span>
           <button
-            onClick={() => activeTab === 'photos' ? void loadPhotos() : void loadReasons()}
+            onClick={() =>
+              activeTab === 'photos' ? void loadPhotos() :
+              activeTab === 'reasons' ? void loadReasons() :
+              void loadStats()
+            }
             className="text-sm px-3 py-2 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--surface-3)] transition-colors"
           >
             Refresh
@@ -956,6 +1028,16 @@ export default function AdminPage() {
           }`}
         >
           💬 Reasons
+        </button>
+        <button
+          onClick={() => setActiveTab('stats')}
+          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+            activeTab === 'stats'
+              ? 'border-purple-500 text-[var(--foreground)]'
+              : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+          }`}
+        >
+          📊 Statistics
         </button>
       </div>
 
@@ -1223,7 +1305,7 @@ export default function AdminPage() {
         </div>
       )}
         </>
-      ) : (
+      ) : activeTab === 'reasons' ? (
         <>
           <ManualReasonSection />
 
@@ -1303,6 +1385,79 @@ export default function AdminPage() {
               })}
             </div>
           )}
+        </>
+      ) : (
+        <>
+          {error && (
+            <div className="rounded-lg border border-red-700 bg-red-900/30 px-4 py-3 text-sm text-red-200">
+              {error}
+            </div>
+          )}
+
+          <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] p-5 space-y-5">
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Date</label>
+                <input
+                  type="date"
+                  value={statsDate}
+                  onChange={(event) => setStatsDate(event.target.value)}
+                  className="text-sm bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-md px-3 py-2"
+                />
+              </div>
+              <button
+                onClick={() => void loadStats()}
+                className="text-sm px-3 py-2 rounded-lg border border-purple-500/40 text-purple-300 hover:bg-purple-900/30"
+              >
+                Load Date Stats
+              </button>
+            </div>
+
+            {loading ? (
+              <p className="text-sm text-[var(--muted-foreground)]">Loading statistics…</p>
+            ) : !stats ? (
+              <p className="text-sm text-[var(--muted-foreground)]">No statistics available.</p>
+            ) : (
+              <>
+                <div>
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-3">Overall Site Statistics</h3>
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Total Photos</p><p className="text-xl font-bold">{stats.overall.totalPhotos}</p></div>
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Total Reasons</p><p className="text-xl font-bold">{stats.overall.totalReasons}</p></div>
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Dates w/ Photos</p><p className="text-xl font-bold">{stats.overall.totalDatesWithPhotos}</p></div>
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Dates w/ Reasons</p><p className="text-xl font-bold">{stats.overall.totalDatesWithReasons}</p></div>
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Photo Votes</p><p className="text-xl font-bold">{stats.overall.totalPhotoVotes}</p></div>
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Reason Votes</p><p className="text-xl font-bold">{stats.overall.totalReasonVotes}</p></div>
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Unique Submitters</p><p className="text-xl font-bold">{stats.overall.totalUniqueSubmitters}</p></div>
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Highest Photo Score</p><p className="text-xl font-bold">{stats.overall.highestPhotoScore}</p></div>
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Highest Reason Net</p><p className="text-xl font-bold">{stats.overall.highestReasonNetScore}</p></div>
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Avg Votes / Photo</p><p className="text-xl font-bold">{stats.overall.averagePhotoVotesPerPhoto}</p></div>
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Avg Votes / Reason</p><p className="text-xl font-bold">{stats.overall.averageReasonVotesPerReason}</p></div>
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Locked Days (P/R)</p><p className="text-xl font-bold">{stats.overall.totalPhotoLockedDates} / {stats.overall.totalReasonLockedDates}</p></div>
+                  </div>
+                </div>
+
+                {stats.byDate && (
+                  <div>
+                    <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-3">Statistics for {stats.byDate.date}</h3>
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Photos Submitted</p><p className="text-xl font-bold">{stats.byDate.photosSubmitted}</p></div>
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Reasons Submitted</p><p className="text-xl font-bold">{stats.byDate.reasonsSubmitted}</p></div>
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Photo Votes Cast</p><p className="text-xl font-bold">{stats.byDate.photoVotesCast}</p></div>
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Reason Votes Cast</p><p className="text-xl font-bold">{stats.byDate.reasonVotesCast}</p></div>
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Valid Photos</p><p className="text-xl font-bold">{stats.byDate.validPhotos}</p></div>
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Valid Reasons</p><p className="text-xl font-bold">{stats.byDate.validReasons}</p></div>
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Avg Photo Score</p><p className="text-xl font-bold">{stats.byDate.averagePhotoScore}</p></div>
+                      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3"><p className="text-xs text-[var(--muted-foreground)]">Avg Reason Net</p><p className="text-xl font-bold">{stats.byDate.averageReasonNetScore}</p></div>
+                    </div>
+                    <div className="mt-3 text-xs text-[var(--muted-foreground)]">
+                      Top locks: Photo {stats.byDate.photoTopLocked ? '✅' : '—'} · Reason {stats.byDate.reasonTopLocked ? '✅' : '—'}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </section>
         </>
       )}
         </>

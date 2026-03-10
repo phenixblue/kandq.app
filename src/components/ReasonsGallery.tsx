@@ -15,9 +15,10 @@ interface ReasonsGalleryProps {
   userId: string | null;
   refreshKey: number;
   filterDate?: string;
+  forceVotesLocked?: boolean;
 }
 
-export default function ReasonsGallery({ userId, refreshKey, filterDate }: ReasonsGalleryProps) {
+export default function ReasonsGallery({ userId, refreshKey, filterDate, forceVotesLocked = false }: ReasonsGalleryProps) {
   const [reasons, setReasons] = useState<Reason[]>([]);
   const [userVotes, setUserVotes] = useState<Record<string, number>>({});
   const [topReasons, setTopReasons] = useState<Set<string>>(new Set());
@@ -115,6 +116,7 @@ export default function ReasonsGallery({ userId, refreshKey, filterDate }: Reaso
         const { data, error: fetchError } = await supabase
           .from('color_history')
           .select('date, reason')
+          .eq('reason_locked', true)
           .not('reason', 'is', null);
 
         if (cancelled) return;
@@ -125,7 +127,7 @@ export default function ReasonsGallery({ userId, refreshKey, filterDate }: Reaso
           );
           setTopReasons(topReasonTexts);
           
-          // Get all dates that have a reason marked as top
+          // Only dates explicitly locked by admin top-reason selection
           const dates = new Set(data.map(entry => entry.date).filter(Boolean));
           setLockedDates(dates);
           
@@ -173,6 +175,7 @@ export default function ReasonsGallery({ userId, refreshKey, filterDate }: Reaso
 
   const handleVote = async (reasonId: string, vote: 1 | -1) => {
     if (!userId) return;
+    if (forceVotesLocked) return;
 
     const targetReason = reasons.find((r) => r.id === reasonId);
     if (!targetReason) return;
@@ -304,7 +307,7 @@ export default function ReasonsGallery({ userId, refreshKey, filterDate }: Reaso
             <div className="flex items-center gap-3">
               <button
                 onClick={() => handleVote(reason.id, 1)}
-                disabled={isLocked || !userId || isDateLocked}
+                disabled={forceVotesLocked || isLocked || !userId || isDateLocked}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   userVote === 1
                     ? 'bg-green-500 text-white'
@@ -315,7 +318,7 @@ export default function ReasonsGallery({ userId, refreshKey, filterDate }: Reaso
               </button>
               <button
                 onClick={() => handleVote(reason.id, -1)}
-                disabled={isLocked || !userId || isDateLocked}
+                disabled={forceVotesLocked || isLocked || !userId || isDateLocked}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   userVote === -1
                     ? 'bg-red-500 text-white'

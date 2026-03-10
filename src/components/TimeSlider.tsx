@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { ColorHistory } from '@/types';
+import { useTheme } from './ThemeProvider';
 
 interface TimeSliderProps {
   onColorsChange: (kingColor: string, queenColor: string) => void;
@@ -22,15 +23,42 @@ const toEasternDateKey = (timestamp: string) =>
     day: '2-digit',
   }).format(new Date(timestamp));
 
+const isNearWhite = (color: string) => {
+  const hex = color.trim().replace('#', '');
+  const normalized =
+    hex.length === 3
+      ? `${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`
+      : hex.slice(0, 6);
+
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+    return false;
+  }
+
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+
+  return r >= 230 && g >= 230 && b >= 230;
+};
+
 export default function TimeSlider({
   onColorsChange,
   onDateChange,
   currentKingColor,
   currentQueenColor,
 }: TimeSliderProps) {
+  const { theme } = useTheme();
   const [history, setHistory] = useState<ColorHistory[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+  const kingCircleBorderColor =
+    theme === 'light' && isNearWhite(currentKingColor)
+      ? 'rgba(15,23,42,0.88)'
+      : 'rgba(255,255,255,0.20)';
+  const queenCircleBorderColor =
+    theme === 'light' && isNearWhite(currentQueenColor)
+      ? 'rgba(15,23,42,0.88)'
+      : 'rgba(255,255,255,0.20)';
 
   useEffect(() => {
     let cancelled = false;
@@ -92,16 +120,38 @@ export default function TimeSlider({
         });
 
         bestPhotoByDate.forEach((photo, date) => {
-          if (byDate.has(date)) return;
+          const existing = byDate.get(date);
+
+          if (!existing) {
+            byDate.set(date, {
+              id: `photo-${photo.id}`,
+              date,
+              king_color: photo.king_color,
+              queen_color: photo.queen_color,
+              reason: null,
+              photo_id: photo.id,
+              updated_at: photo.submitted_at,
+            });
+            return;
+          }
+
+          if (existing.photo_locked) {
+            if (!existing.king_color || !existing.queen_color) {
+              byDate.set(date, {
+                ...existing,
+                king_color: existing.king_color || photo.king_color,
+                queen_color: existing.queen_color || photo.queen_color,
+                photo_id: existing.photo_id || photo.id,
+              });
+            }
+            return;
+          }
 
           byDate.set(date, {
-            id: `photo-${photo.id}`,
-            date,
+            ...existing,
             king_color: photo.king_color,
             queen_color: photo.queen_color,
-            reason: null,
             photo_id: photo.id,
-            updated_at: photo.submitted_at,
           });
         });
       }
@@ -126,7 +176,7 @@ export default function TimeSlider({
     return () => {
       cancelled = true;
     };
-  }, [onColorsChange]);
+  }, [onColorsChange, onDateChange]);
 
   const updateSelectedIndex = (idx: number) => {
     if (history.length === 0) return;
@@ -205,15 +255,21 @@ export default function TimeSlider({
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <div
-              className="w-4 h-4 rounded-full border border-white/20"
-              style={{ backgroundColor: currentKingColor }}
+              className="w-4 h-4 rounded-full border"
+              style={{
+                backgroundColor: currentKingColor,
+                borderColor: kingCircleBorderColor,
+              }}
             />
             <span className="text-xs text-gray-400">King</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div
-              className="w-4 h-4 rounded-full border border-white/20"
-              style={{ backgroundColor: currentQueenColor }}
+              className="w-4 h-4 rounded-full border"
+              style={{
+                backgroundColor: currentQueenColor,
+                borderColor: queenCircleBorderColor,
+              }}
             />
             <span className="text-xs text-gray-400">Queen</span>
           </div>
@@ -251,25 +307,36 @@ export default function TimeSlider({
 
       {/* Color swatch row for history (mini timeline) */}
       <div className="flex gap-0.5 overflow-x-auto pb-1">
-        {history.slice(0, 30).map((entry, i) => (
-          <button
-            key={entry.id}
-            onClick={() => {
-              setSelectedIndex(i);
-              onColorsChange(
-                entry.king_color || DEFAULT_KING,
-                entry.queen_color || DEFAULT_QUEEN
-              );
-            }}
-            title={formatDate(entry.date)}
-            className={`flex-shrink-0 w-6 h-6 rounded-sm border transition-transform hover:scale-110 ${
-              i === selectedIndex ? 'border-white scale-110' : 'border-transparent'
-            }`}
-            style={{
-              background: `linear-gradient(135deg, ${entry.king_color || '#444'} 50%, ${entry.queen_color || '#444'} 50%)`,
-            }}
-          />
-        ))}
+        {history.slice(0, 30).map((entry, i) => {
+          const king = entry.king_color || '#444';
+          const queen = entry.queen_color || '#444';
+          const isSelected = i === selectedIndex;
+          const isLightSwatch = isNearWhite(king) || isNearWhite(queen);
+          const useDarkOutline = theme === 'light' && isLightSwatch;
+
+          return (
+            <button
+              key={entry.id}
+              onClick={() => updateSelectedIndex(i)}
+              title={formatDate(entry.date)}
+              className={`relative flex-shrink-0 w-6 h-6 rounded-sm border transition-transform hover:scale-110 ${
+                isSelected ? 'scale-110' : ''
+              }`}
+              style={{
+                background: `linear-gradient(135deg, ${king} 50%, ${queen} 50%)`,
+                borderColor: 'transparent',
+                boxShadow: isSelected
+                  ? (useDarkOutline
+                    ? 'inset 0 0 0 1px rgba(15,23,42,0.95), 0 0 0 1.25px rgba(15,23,42,0.95)'
+                    : 'inset 0 0 0 1px rgba(255,255,255,0.95), 0 0 0 1.25px rgba(255,255,255,0.95)')
+                  : (useDarkOutline
+                    ? 'inset 0 0 0 1px rgba(15,23,42,0.72)'
+                    : 'inset 0 0 0 1px rgba(255,255,255,0.12)'),
+                zIndex: isSelected ? 2 : 1,
+              }}
+            />
+          );
+        })}
       </div>
     </div>
   );

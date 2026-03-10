@@ -64,6 +64,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         king_color: photo.king_color,
         queen_color: photo.queen_color,
         reason: photo.color_reason || null,
+        photo_locked: true,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'date' }
@@ -98,9 +99,10 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
   const { data: targetRow, error: targetError } = await supabase
     .from('color_history')
-    .select('id, reason')
+    .select('id, reason, reason_locked')
     .eq('date', requestedDate)
     .eq('photo_id', photoId)
+    .eq('photo_locked', true)
     .maybeSingle();
 
   if (targetError) {
@@ -111,13 +113,14 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, date: requestedDate, photoId, removed: false });
   }
 
-  if (targetRow.reason) {
+  if (targetRow.reason_locked) {
     const { error: clearError } = await supabase
       .from('color_history')
       .update({
         photo_id: null,
         king_color: null,
         queen_color: null,
+        photo_locked: false,
         updated_at: new Date().toISOString(),
       })
       .eq('id', targetRow.id);

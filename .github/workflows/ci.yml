@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop, "copilot/**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  lint_and_quality:
+    name: Lint & Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint -- .
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+  security_npm_audit:
+    name: Security (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit (high+)
+        run: npm audit --audit-level=high
+
+  security_codeql:
+    name: Security (CodeQL)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+
+  unit_tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: [lint_and_quality]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests if configured
+        shell: bash
+        run: |
+          set -euo pipefail
+          if node -e "const p=require('./package.json');process.exit((p.scripts&&p.scripts['test:unit'])?0:1)"; then
+            npm run test:unit
+          elif node -e "const p=require('./package.json');process.exit((p.scripts&&p.scripts['test'])?0:1)"; then
+            npm test -- --ci
+          else
+            echo "No unit test script configured (expected test:unit or test). Skipping."
+          fi
+
+  e2e_tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [lint_and_quality]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers (if Playwright is configured)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ls playwright.config.* >/dev/null 2>&1; then
+            npx playwright install --with-deps
+          else
+            echo "No Playwright config found. Skipping browser install."
+          fi
+
+      - name: Run E2E tests if configured
+        shell: bash
+        run: |
+          set -euo pipefail
+          if node -e "const p=require('./package.json');process.exit((p.scripts&&p.scripts['test:e2e'])?0:1)"; then
+            npm run test:e2e
+          else
+            echo "No e2e test script configured (expected test:e2e). Skipping."
+          fi

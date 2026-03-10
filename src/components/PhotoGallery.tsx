@@ -10,9 +10,10 @@ interface PhotoGalleryProps {
   refreshKey: number;
   onColorsUpdate?: (kingColor: string, queenColor: string) => void;
   filterDate?: string;
+  forceVotesLocked?: boolean;
 }
 
-export default function PhotoGallery({ userId, refreshKey, onColorsUpdate, filterDate }: PhotoGalleryProps) {
+export default function PhotoGallery({ userId, refreshKey, onColorsUpdate, filterDate, forceVotesLocked = false }: PhotoGalleryProps) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [userVotes, setUserVotes] = useState<UserVotes>({});
   const [lockedDates, setLockedDates] = useState<Set<string>>(new Set());
@@ -107,12 +108,13 @@ export default function PhotoGallery({ userId, refreshKey, onColorsUpdate, filte
         const { data, error: fetchError } = await supabase
           .from('color_history')
           .select('date, photo_id')
+          .eq('photo_locked', true)
           .not('photo_id', 'is', null);
 
         if (cancelled) return;
 
         if (!fetchError && data) {
-          // Get all dates that have a photo marked as top
+          // Only dates explicitly locked by admin top-photo selection
           const dates = new Set(data.map(entry => entry.date).filter(Boolean));
           setLockedDates(dates);
         }
@@ -152,6 +154,7 @@ export default function PhotoGallery({ userId, refreshKey, onColorsUpdate, filte
 
   const handleVote = async (photoId: string, vote: 1 | -1) => {
     if (!userId) return;
+    if (forceVotesLocked) return;
 
     const targetPhoto = photos.find((photo) => photo.id === photoId);
     if (!targetPhoto) return;
@@ -277,7 +280,7 @@ export default function PhotoGallery({ userId, refreshKey, onColorsUpdate, filte
             userVote={userVotes[photo.id]}
             onVote={handleVote}
             isLoggedIn={Boolean(userId)}
-            votesLocked={isVoteLocked(photo.submitted_at) || lockedDates.has(photoDate)}
+            votesLocked={forceVotesLocked || isVoteLocked(photo.submitted_at) || lockedDates.has(photoDate)}
           />
         );
       })}

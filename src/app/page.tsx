@@ -14,6 +14,14 @@ import ReasonsGallery from '@/components/ReasonsGallery';
 const DEFAULT_KING_COLOR = '#38bdf8';
 const DEFAULT_QUEEN_COLOR = '#a78bfa';
 
+const todayEasternDateKey = () =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+
 // Pre-computed star positions (module-level, not computed during render)
 const STARS = Array.from({ length: 60 }, (_, i) => ({
   id: i,
@@ -49,6 +57,7 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [isAdmin, setIsAdmin] = useState(false);
   const configured = isSupabaseConfigured();
+  const isHistoricDateSelected = Boolean(selectedDate) && selectedDate < todayEasternDateKey();
 
   // Listen for auth changes
   useEffect(() => {
@@ -122,14 +131,14 @@ export default function Home() {
           </div>
 
           <nav className="flex items-center gap-4">
-            <a
-              href="https://www.concourse-atl.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-gray-700 dark:text-gray-400 hover:text-black dark:hover:text-white text-sm transition-colors hidden sm:block"
-            >
-              About the Buildings
-            </a>
+            {configured && user && (
+              <button
+                onClick={() => setShowUpload(true)}
+                className="bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+              >
+                + Submit Photo
+              </button>
+            )}
 
             <ThemeToggle />
 
@@ -151,12 +160,6 @@ export default function Home() {
                         Admin
                       </a>
                     )}
-                    <button
-                      onClick={() => setShowUpload(true)}
-                      className="bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-                    >
-                      + Submit Photo
-                    </button>
                     <button
                       onClick={handleSignOut}
                       className="text-gray-700 dark:text-gray-400 hover:text-black dark:hover:text-white text-sm transition-colors"
@@ -294,7 +297,7 @@ export default function Home() {
                 <h2 className="text-sm font-bold text-[color:var(--foreground)] uppercase tracking-widest flex items-center gap-2">
                   <span>📸</span> Daily Submissions
                 </h2>
-                {user && (
+                {user && !isHistoricDateSelected && (
                   <button
                     onClick={() => setShowUpload(true)}
                     className="text-sm text-purple-400 hover:text-purple-300 transition-colors"
@@ -308,6 +311,7 @@ export default function Home() {
                 refreshKey={galleryRefreshKey}
                 onColorsUpdate={handleColorsUpdate}
                 filterDate={selectedDate}
+                forceVotesLocked={isHistoricDateSelected}
               />
             </div>
 
@@ -317,7 +321,7 @@ export default function Home() {
                 <h2 className="text-sm font-bold text-[color:var(--foreground)] uppercase tracking-widest flex items-center gap-2">
                   <span>💬</span> Reasons
                 </h2>
-                {user && (
+                {user && !isHistoricDateSelected && (
                   <button
                     onClick={() => setShowUpload(true)}
                     className="text-sm text-purple-400 hover:text-purple-300 transition-colors"
@@ -330,6 +334,7 @@ export default function Home() {
                 userId={user?.id ?? null}
                 refreshKey={galleryRefreshKey}
                 filterDate={selectedDate}
+                forceVotesLocked={isHistoricDateSelected}
               />
             </div>
           </div>
@@ -364,7 +369,15 @@ export default function Home() {
           >
             The Webroot, LLC.
           </a>{' '}
-          · Sandy Springs, GA
+          ·{' '}
+          <a
+            href="https://www.concourse-atl.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-gray-400 transition-colors"
+          >
+            About the Buildings
+          </a>
         </p>
       </footer>
 

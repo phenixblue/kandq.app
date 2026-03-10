@@ -29,6 +29,8 @@ export interface ColorHistory {
   queen_color: string | null;
   reason: string | null;
   photo_id: string | null;
+  photo_locked?: boolean;
+  reason_locked?: boolean;
   updated_at: string;
 }
 
