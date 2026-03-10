@@ -12,19 +12,11 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>('dark');
-  const [mounted, setMounted] = useState(false);
+  const [theme, setTheme] = useState<Theme>(() => getInitialTheme());
 
-  useEffect(() => {
-    const initialTheme = getInitialTheme();
-    setTheme(initialTheme);
-    applyTheme(initialTheme);
-    setMounted(true);
-  }, []);
-
-  const applyTheme = (newTheme: Theme) => {
+  function applyTheme(newTheme: Theme) {
     document.documentElement.setAttribute('data-theme', newTheme);
-    
+
     if (newTheme === 'dark') {
       document.body.style.backgroundColor = '#07080f';
       document.body.style.color = '#f1f5f9';
@@ -32,13 +24,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       document.body.style.backgroundColor = '#ffffff';
       document.body.style.color = '#1f2937';
     }
-  };
+  }
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
 
   const toggleTheme = () => {
     setTheme((prev) => {
       const newTheme = prev === 'dark' ? 'light' : 'dark';
       saveTheme(newTheme);
-      applyTheme(newTheme);
       return newTheme;
     });
   };
