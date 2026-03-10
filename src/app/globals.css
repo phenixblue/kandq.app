@@ -3,12 +3,35 @@
 :root {
   --background: #07080f;
   --foreground: #f1f5f9;
+  --surface-1: rgba(15, 23, 42, 0.72);
+  --surface-2: rgba(15, 23, 42, 0.5);
+  --surface-3: rgba(15, 23, 42, 0.35);
+  --border-subtle: rgba(255, 255, 255, 0.14);
+  --muted-foreground: #94a3b8;
+}
+
+html[data-theme="light"] {
+  --background: #ffffff;
+  --foreground: #1f2937;
+  --surface-1: rgba(248, 250, 252, 0.94);
+  --surface-2: rgba(241, 245, 249, 0.92);
+  --surface-3: rgba(226, 232, 240, 0.8);
+  --border-subtle: rgba(15, 23, 42, 0.14);
+  --muted-foreground: #475569;
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  --background: #07080f;
+  --foreground: #f1f5f9;
+  color-scheme: dark;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* Smooth color transitions on building glow */
@@ -46,5 +69,17 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
   border: 2px solid white;
   box-shadow: 0 0 8px #7c3aed88;
+}
+
+html[data-theme="light"] input[type="range"] {
+  background: #d1d5db;
+}
+
+html[data-theme="light"] input[type="range"]::-webkit-slider-thumb {
+  border-color: #374151;
+}
+
+html[data-theme="light"] input[type="range"]::-moz-range-thumb {
+  border-color: #374151;
 }
 

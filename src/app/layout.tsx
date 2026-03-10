@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ThemeProvider } from "@/components/ThemeProvider";
 
 export const metadata: Metadata = {
   title: "KANDQ – King & Queen Building Lights",
@@ -13,9 +14,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className="antialiased bg-[#07080f] text-white">
-        {children}
+    <html lang="en" suppressHydrationWarning>
+      <body className="antialiased text-white" style={{ backgroundColor: '#07080f', color: '#f1f5f9' }}>
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

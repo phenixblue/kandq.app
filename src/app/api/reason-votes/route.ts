@@ -10,7 +10,7 @@ function getServiceClient() {
   return createClient(url, key);
 }
 
-// POST /api/votes – upsert a vote for a photo
+// POST /api/reason-votes – upsert a vote for a photo reason
 export async function POST(req: NextRequest) {
   try {
     const supabase = getServiceClient();
@@ -21,55 +21,51 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing or invalid fields' }, { status: 400 });
     }
 
-    // Upsert the vote
     const { error: voteError } = await supabase
-      .from('votes')
+      .from('reason_votes')
       .upsert({ user_id, photo_id, vote }, { onConflict: 'user_id,photo_id' });
 
     if (voteError) throw voteError;
 
-    // Recalculate vote score for the photo
     const { data: voteSums } = await supabase
-      .from('votes')
+      .from('reason_votes')
       .select('vote')
       .eq('photo_id', photo_id);
 
-    const score = (voteSums || []).reduce((acc: number, v: { vote: number }) => acc + v.vote, 0);
+    const score = (voteSums || []).reduce((acc: number, row: { vote: number }) => acc + row.vote, 0);
 
     const { error: updateError } = await supabase
       .from('photos')
-      .update({ vote_score: score })
+      .update({ reason_vote_score: score })
       .eq('id', photo_id);
 
     if (updateError) throw updateError;
 
-    // Update color history: find the all-time highest-rated photo (not limited to today)
+    // Keep today's reason in history aligned to top reason-voted photo
     const today = new Date().toISOString().split('T')[0];
-    const { data: topPhoto } = await supabase
+    const { data: topReasonPhoto } = await supabase
       .from('photos')
-      .select('id, king_color, queen_color, color_reason')
+      .select('id, color_reason')
       .eq('is_valid', true)
-      .not('king_color', 'is', null)
-      .not('queen_color', 'is', null)
-      .order('vote_score', { ascending: false })
+      .not('color_reason', 'is', null)
+      .order('reason_vote_score', { ascending: false })
+      .order('submitted_at', { ascending: false })
       .limit(1)
       .single();
 
-    if (topPhoto) {
+    if (topReasonPhoto?.color_reason) {
       await supabase.from('color_history').upsert(
         {
           date: today,
-          king_color: topPhoto.king_color,
-          queen_color: topPhoto.queen_color,
-          reason: topPhoto.color_reason || null,
-          photo_id: topPhoto.id,
+          reason: topReasonPhoto.color_reason,
+          photo_id: topReasonPhoto.id,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'date' }
       );
     }
 
-    return NextResponse.json({ vote_score: score });
+    return NextResponse.json({ reason_vote_score: score });
   } catch (err: unknown) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Internal server error' },
@@ -78,7 +74,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// DELETE /api/votes – remove a vote
+// DELETE /api/reason-votes – remove a reason vote
 export async function DELETE(req: NextRequest) {
   try {
     const supabase = getServiceClient();
@@ -90,24 +86,23 @@ export async function DELETE(req: NextRequest) {
     }
 
     const { error } = await supabase
-      .from('votes')
+      .from('reason_votes')
       .delete()
       .eq('user_id', user_id)
       .eq('photo_id', photo_id);
 
     if (error) throw error;
 
-    // Recalculate vote score
     const { data: voteSums } = await supabase
-      .from('votes')
+      .from('reason_votes')
       .select('vote')
       .eq('photo_id', photo_id);
 
-    const score = (voteSums || []).reduce((acc: number, v: { vote: number }) => acc + v.vote, 0);
+    const score = (voteSums || []).reduce((acc: number, row: { vote: number }) => acc + row.vote, 0);
 
-    await supabase.from('photos').update({ vote_score: score }).eq('id', photo_id);
+    await supabase.from('photos').update({ reason_vote_score: score }).eq('id', photo_id);
 
-    return NextResponse.json({ vote_score: score });
+    return NextResponse.json({ reason_vote_score: score });
   } catch (err: unknown) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Internal server error' },
