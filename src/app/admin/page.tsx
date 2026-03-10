@@ -21,6 +21,12 @@ function todayDateInput() {
   return new Date().toISOString().split('T')[0];
 }
 
+function toEasternDateInput(value: string) {
+  return new Date(value).toLocaleDateString('en-CA', {
+    timeZone: 'America/New_York',
+  });
+}
+
 const HEX_COLOR_PATTERN = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
 function normalizeHex(value: string): string {
@@ -39,12 +45,416 @@ function normalizeHex(value: string): string {
   return trimmed.toUpperCase();
 }
 
+interface ManualEntrySectionProps {
+  authedFetch: (url: string, init?: RequestInit) => Promise<Response>;
+}
+
+interface AdminReason {
+  id: string;
+  user_id: string;
+  reason_text: string;
+  upvotes: number;
+  downvotes: number;
+  is_valid: boolean;
+  submitted_at: string;
+}
+
+function ManualReasonSection() {
+  const [selectedDate, setSelectedDate] = useState<string>(todayDateInput());
+  const [reasonText, setReasonText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    if (!reasonText.trim()) {
+      setError('Please enter a reason');
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const response = await fetch('/api/reasons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: session.user.id,
+          reason_text: reasonText.trim(),
+          submitted_at: selectedDate + 'T12:00:00Z',
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || `Failed to create reason (${response.status})`);
+      }
+
+      setSuccess(`Successfully added reason for ${selectedDate}`);
+      setReasonText('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create manual reason');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] p-6">
+      <div className="mb-4">
+        <h2 className="text-lg font-bold flex items-center gap-2">
+          <span>💬</span> Manual Reason Entry
+        </h2>
+        <p className="text-xs text-[var(--muted-foreground)] mt-1">
+          Add a reason for a specific date
+        </p>
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-red-700 bg-red-900/30 px-4 py-3 text-sm text-red-200 mb-4">
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="rounded-lg border border-green-700 bg-green-900/30 px-4 py-3 text-sm text-green-200 mb-4">
+          {success}
+        </div>
+      )}
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-2">
+            Date
+          </label>
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            max={todayDateInput()}
+            className="w-full text-sm bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-lg px-3 py-2"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-2">
+            Reason
+          </label>
+          <textarea
+            value={reasonText}
+            onChange={(e) => setReasonText(e.target.value.slice(0, 180))}
+            placeholder="Why these colors on this date?"
+            rows={5}
+            className="w-full text-sm bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 resize-none"
+          />
+          <p className="text-xs text-[var(--muted-foreground)] mt-1">
+            {reasonText.length}/180 characters
+          </p>
+        </div>
+
+        <button
+          onClick={handleSubmit}
+          disabled={submitting || !reasonText.trim()}
+          className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-4 py-3 rounded-lg transition-colors"
+        >
+          {submitting ? 'Submitting...' : 'Add Historical Reason'}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ManualEntrySection({ authedFetch }: ManualEntrySectionProps) {
+  const [selectedDate, setSelectedDate] = useState<string>(todayDateInput());
+  const [kingColor, setKingColor] = useState('#FFFFFF');
+  const [queenColor, setQueenColor] = useState('#FFFFFF');
+  const [reason, setReason] = useState('');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        setError('Please select a valid image file');
+        return;
+      }
+      setPhotoFile(file);
+      setError(null);
+      
+      // Create preview URL
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
+    }
+  };
+
+  const handleAutoDetect = async () => {
+    if (!photoFile) {
+      setError('Please select a photo first');
+      return;
+    }
+
+    setAnalyzing(true);
+    setError(null);
+
+    try {
+      const analysis = await analyzeImage(photoFile);
+      
+      if (analysis.isValid) {
+        setKingColor(analysis.kingColor.toUpperCase());
+        setQueenColor(analysis.queenColor.toUpperCase());
+        setSuccess(`Detected colors - Confidence: ${Math.round(analysis.confidence * 100)}%`);
+      } else {
+        setError('Could not detect valid building colors in this image');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to analyze image');
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!photoFile) {
+      setError('Please select a photo to upload');
+      return;
+    }
+
+    setUploading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      // Validate colors
+      const normalizedKing = normalizeHex(kingColor);
+      const normalizedQueen = normalizeHex(queenColor);
+
+      // Upload to storage first
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const fileExt = photoFile.name.split('.').pop() || 'jpg';
+      const filePath = `photos/${session.user.id}/${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('kandq-photos')
+        .upload(filePath, photoFile, { contentType: photoFile.type });
+
+      if (uploadError) {
+        throw new Error(`Storage upload failed: ${uploadError.message}`);
+      }
+
+      const { data: urlData } = supabase.storage
+        .from('kandq-photos')
+        .getPublicUrl(filePath);
+
+      // Create photo via API
+      const response = await authedFetch('/api/admin/photos/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: selectedDate,
+          kingColor: normalizedKing,
+          queenColor: normalizedQueen,
+          reason: reason.trim() || null,
+          url: urlData.publicUrl,
+          storagePath: filePath,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || `Manual API failed (${response.status})`);
+      }
+
+      setSuccess(`Successfully added entry for ${selectedDate}`);
+      setPhotoFile(null);
+      setReason('');
+      setKingColor('#FFFFFF');
+      setQueenColor('#FFFFFF');
+      
+      // Reset file input
+      const fileInput = document.getElementById('manual-photo-input') as HTMLInputElement;
+      if (fileInput) fileInput.value = '';
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create manual entry');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] p-6">
+      <div className="mb-4">
+        <h2 className="text-lg font-bold flex items-center gap-2">
+          <span>📅</span> Manual Historical Entry
+        </h2>
+        <p className="text-xs text-[var(--muted-foreground)] mt-1">
+          Add a photo and color data for a specific date
+        </p>
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-red-700 bg-red-900/30 px-4 py-3 text-sm text-red-200 mb-4">
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="rounded-lg border border-green-700 bg-green-900/30 px-4 py-3 text-sm text-green-200 mb-4">
+          {success}
+        </div>
+      )}
+
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Date
+            </label>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              max={todayDateInput()}
+              className="w-full text-sm bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-lg px-3 py-2"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Photo
+            </label>
+            <input
+              id="manual-photo-input"
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              className="w-full text-sm bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 file:mr-3 file:px-3 file:py-1 file:rounded file:border-0 file:bg-purple-600 file:text-white file:text-xs file:font-medium hover:file:bg-purple-500"
+            />
+            {photoFile && (
+              <div className="mt-2 space-y-2">
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  Selected: {photoFile.name}
+                </p>
+                {previewUrl && (
+                  <img 
+                    src={previewUrl} 
+                    alt="Preview" 
+                    className="w-full h-32 object-contain rounded-lg bg-[var(--surface-3)]" 
+                  />
+                )}
+                <button
+                  onClick={handleAutoDetect}
+                  disabled={analyzing}
+                  className="w-full text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium px-3 py-2 rounded-lg transition-colors"
+                >
+                  {analyzing ? 'Analyzing...' : '🔍 Auto-Detect Colors'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                King Color
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={kingColor}
+                  onChange={(e) => setKingColor(e.target.value.toUpperCase())}
+                  placeholder="#FFFFFF"
+                  className="flex-1 text-sm font-mono bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-lg px-3 py-2"
+                />
+                <div
+                  className="w-10 h-10 rounded-lg border border-white/25"
+                  style={{ backgroundColor: kingColor }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Queen Color
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={queenColor}
+                  onChange={(e) => setQueenColor(e.target.value.toUpperCase())}
+                  placeholder="#FFFFFF"
+                  className="flex-1 text-sm font-mono bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-lg px-3 py-2"
+                />
+                <div
+                  className="w-10 h-10 rounded-lg border border-white/25"
+                  style={{ backgroundColor: queenColor }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Reason (Optional)
+            </label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value.slice(0, 180))}
+              placeholder="Why these colors on this date?"
+              rows={5}
+              className="w-full text-sm bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 resize-none"
+            />
+            <p className="text-xs text-[var(--muted-foreground)] mt-1">
+              {reason.length}/180 characters
+            </p>
+          </div>
+
+          <button
+            onClick={handleSubmit}
+            disabled={uploading || !photoFile}
+            className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-4 py-3 rounded-lg transition-colors"
+          >
+            {uploading ? 'Uploading...' : 'Add Historical Entry'}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
 export default function AdminPage() {
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [reasons, setReasons] = useState<AdminReason[]>([]);
+  const [activeTab, setActiveTab] = useState<'photos' | 'reasons'>('photos');
   const [busyById, setBusyById] = useState<Record<string, boolean>>({});
   const [topDateById, setTopDateById] = useState<Record<string, string>>({});
+  const [topReasonDateById, setTopReasonDateById] = useState<Record<string, string>>({});
+  const [topPhotoByDate, setTopPhotoByDate] = useState<Record<string, string>>({});
+  const [topReasonByDate, setTopReasonByDate] = useState<Record<string, string>>({});
   const [debugById, setDebugById] = useState<Record<string, AnalysisResult>>({});
   const [overrideById, setOverrideById] = useState<Record<string, { king: string; queen: string }>>({});
   const [showOverlayById, setShowOverlayById] = useState<Record<string, boolean>>({});
@@ -74,7 +484,64 @@ export default function AdminPage() {
     return response;
   }, []);
 
+  const loadTopSelections = useCallback(async () => {
+    const { data, error: fetchError } = await supabase
+      .from('color_history')
+      .select('date, photo_id, reason')
+      .limit(365);
+
+    if (fetchError) {
+      throw new Error(fetchError.message || 'Failed to load top selections.');
+    }
+
+    const nextPhotoByDate: Record<string, string> = {};
+    const nextReasonByDate: Record<string, string> = {};
+
+    for (const row of data || []) {
+      if (row.date && row.photo_id) {
+        nextPhotoByDate[row.date] = row.photo_id;
+      }
+      if (row.date && row.reason) {
+        nextReasonByDate[row.date] = row.reason;
+      }
+    }
+
+    setTopPhotoByDate(nextPhotoByDate);
+    setTopReasonByDate(nextReasonByDate);
+  }, []);
+
+  // Check admin status on mount
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      try {
+        const response = await authedFetch('/api/admin/photos');
+        const payload = await response.json();
+
+        if (response.status === 403) {
+          // Not an admin
+          setIsAdmin(false);
+          setError('You do not have permission to access admin features.');
+        } else if (response.ok) {
+          // Is an admin
+          setIsAdmin(true);
+        } else {
+          setIsAdmin(false);
+          setError(payload.error || 'Failed to verify admin status.');
+        }
+      } catch (checkError) {
+        setIsAdmin(false);
+        setError(checkError instanceof Error ? checkError.message : 'Failed to verify admin status.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void checkAdminStatus();
+  }, [authedFetch]);
+
   const loadPhotos = useCallback(async () => {
+    if (activeTab !== 'photos') return;
+    
     setLoading(true);
     setError(null);
 
@@ -88,11 +555,12 @@ export default function AdminPage() {
 
       const list = (payload || []) as Photo[];
       setPhotos(list);
+      await loadTopSelections();
       setTopDateById((prev) => {
         const next = { ...prev };
         for (const photo of list) {
           if (!next[photo.id]) {
-            next[photo.id] = todayDateInput();
+            next[photo.id] = toEasternDateInput(photo.submitted_at);
           }
         }
         return next;
@@ -115,11 +583,51 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [authedFetch]);
+  }, [authedFetch, activeTab, loadTopSelections]);
+
+  const loadReasons = useCallback(async () => {
+    if (activeTab !== 'reasons') return;
+    
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('reasons')
+        .select('id, user_id, reason_text, upvotes, downvotes, is_valid, submitted_at')
+        .order('submitted_at', { ascending: false })
+        .limit(100);
+
+      if (fetchError) {
+        throw new Error(fetchError.message || 'Failed to load reasons.');
+      }
+
+      const list = (data || []) as AdminReason[];
+      setReasons(list);
+      await loadTopSelections();
+      setTopReasonDateById((prev) => {
+        const next = { ...prev };
+        for (const reason of list) {
+          if (!next[reason.id]) {
+            next[reason.id] = toEasternDateInput(reason.submitted_at);
+          }
+        }
+        return next;
+      });
+    } catch (fetchError: unknown) {
+      setError(fetchError instanceof Error ? fetchError.message : 'Failed to load reasons.');
+    } finally {
+      setLoading(false);
+    }
+  }, [activeTab, loadTopSelections]);
 
   useEffect(() => {
-    void loadPhotos();
-  }, [loadPhotos]);
+    if (activeTab === 'photos') {
+      void loadPhotos();
+    } else {
+      void loadReasons();
+    }
+  }, [loadPhotos, loadReasons, activeTab]);
 
   const handleDelete = async (photoId: string) => {
     const confirmed = window.confirm('Delete this photo and its storage object? This cannot be undone.');
@@ -170,20 +678,37 @@ export default function AdminPage() {
     setError(null);
 
     try {
+      const selectedDate = topDateById[photo.id] || todayDateInput();
+      const isCurrentlyTop = topPhotoByDate[selectedDate] === photo.id;
+
       const response = await authedFetch(`/api/admin/photos/${photo.id}/top-of-day`, {
-        method: 'POST',
+        method: isCurrentlyTop ? 'DELETE' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: topDateById[photo.id] || todayDateInput() }),
+        body: JSON.stringify({ date: selectedDate }),
       });
       const payload = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload.error || 'Failed to mark photo as top of day.');
+        throw new Error(payload.error || 'Failed to toggle top photo for day.');
       }
 
-      alert(`Marked photo as top-ranked for ${payload.date}.`);
+      setTopPhotoByDate((prev) => {
+        const next = { ...prev };
+        if (isCurrentlyTop) {
+          delete next[selectedDate];
+        } else {
+          next[selectedDate] = photo.id;
+        }
+        return next;
+      });
+
+      alert(
+        isCurrentlyTop
+          ? `Removed top photo for ${payload.date}.`
+          : `Marked photo as top-ranked for ${payload.date}.`
+      );
     } catch (markError: unknown) {
-      setError(markError instanceof Error ? markError.message : 'Failed to mark top of day.');
+      setError(markError instanceof Error ? markError.message : 'Failed to toggle top of day.');
     } finally {
       setBusy(photo.id, false);
     }
@@ -290,10 +815,81 @@ export default function AdminPage() {
     }
   };
 
+  const handleDeleteReason = async (reasonId: string) => {
+    const confirmed = window.confirm('Delete this reason? This cannot be undone.');
+    if (!confirmed) return;
+
+    setBusy(reasonId, true);
+    setError(null);
+    try {
+      const { error: deleteError } = await supabase
+        .from('reasons')
+        .delete()
+        .eq('id', reasonId);
+
+      if (deleteError) throw deleteError;
+
+      setReasons((prev) => prev.filter((reason) => reason.id !== reasonId));
+    } catch (deleteError: unknown) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Delete failed.');
+    } finally {
+      setBusy(reasonId, false);
+    }
+  };
+
+  const handleMarkTopReason = async (reasonId: string) => {
+    setBusy(reasonId, true);
+    setError(null);
+
+    try {
+      const selectedDate = topReasonDateById[reasonId] || todayDateInput();
+      const reason = reasons.find((entry) => entry.id === reasonId);
+      if (!reason) {
+        throw new Error('Reason not found.');
+      }
+      const isCurrentlyTop = topReasonByDate[selectedDate] === reason.reason_text;
+
+      const response = await authedFetch('/api/admin/reasons/top-of-day', {
+        method: isCurrentlyTop ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason_id: reasonId, date: selectedDate }),
+      });
+
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || 'Failed to toggle top reason for day.');
+      }
+
+      setTopReasonByDate((prev) => {
+        const next = { ...prev };
+        if (isCurrentlyTop) {
+          delete next[selectedDate];
+        } else {
+          next[selectedDate] = reason.reason_text;
+        }
+        return next;
+      });
+
+      alert(
+        isCurrentlyTop
+          ? `Removed top reason for ${payload.date}.`
+          : `Marked reason as top for ${payload.date}.`
+      );
+    } catch (markError: unknown) {
+      setError(markError instanceof Error ? markError.message : 'Failed to toggle top reason.');
+    } finally {
+      setBusy(reasonId, false);
+    }
+  };
+
   const photoCountLabel = useMemo(() => {
     if (loading) return 'Loading…';
-    return `${photos.length} photo${photos.length === 1 ? '' : 's'}`;
-  }, [loading, photos.length]);
+    if (activeTab === 'photos') {
+      return `${photos.length} photo${photos.length === 1 ? '' : 's'}`;
+    }
+    return `${reasons.length} reason${reasons.length === 1 ? '' : 's'}`;
+  }, [loading, photos.length, reasons.length, activeTab]);
 
   return (
     <div className="min-h-screen flex flex-col text-[var(--foreground)]">
@@ -316,6 +912,13 @@ export default function AdminPage() {
       </header>
 
       <main className="max-w-6xl mx-auto w-full px-4 sm:px-6 py-8 space-y-6">
+      {!isAdmin ? (
+        <div className="rounded-lg border border-red-700 bg-red-900/30 px-4 py-6 text-center text-red-200">
+          <p className="font-semibold mb-2">Access Denied</p>
+          <p>{error || 'You do not have permission to access admin features.'}</p>
+        </div>
+      ) : (
+        <>
       <header className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Admin Dashboard</h1>
@@ -324,7 +927,7 @@ export default function AdminPage() {
         <div className="flex items-center gap-3">
           <span className="text-xs text-[var(--muted-foreground)]">{photoCountLabel}</span>
           <button
-            onClick={() => void loadPhotos()}
+            onClick={() => activeTab === 'photos' ? void loadPhotos() : void loadReasons()}
             className="text-sm px-3 py-2 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--surface-3)] transition-colors"
           >
             Refresh
@@ -332,21 +935,51 @@ export default function AdminPage() {
         </div>
       </header>
 
-      {error && (
-        <div className="rounded-lg border border-red-700 bg-red-900/30 px-4 py-3 text-sm text-red-200">
-          {error}
-        </div>
-      )}
+      {/* Tab Navigation */}
+      <div className="flex gap-2 border-b border-[var(--border-subtle)] pb-px">
+        <button
+          onClick={() => setActiveTab('photos')}
+          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+            activeTab === 'photos'
+              ? 'border-purple-500 text-[var(--foreground)]'
+              : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+          }`}
+        >
+          📸 Photos
+        </button>
+        <button
+          onClick={() => setActiveTab('reasons')}
+          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+            activeTab === 'reasons'
+              ? 'border-purple-500 text-[var(--foreground)]'
+              : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+          }`}
+        >
+          💬 Reasons
+        </button>
+      </div>
 
-      {loading ? (
-        <div className="text-sm text-[var(--muted-foreground)]">Loading submitted photos…</div>
-      ) : photos.length === 0 ? (
-        <div className="text-sm text-[var(--muted-foreground)]">No submitted photos found.</div>
-      ) : (
-        <div className="space-y-5">
-          {photos.map((photo) => {
+      {activeTab === 'photos' ? (
+        <>
+          <ManualEntrySection authedFetch={authedFetch} />
+
+          {error && (
+            <div className="rounded-lg border border-red-700 bg-red-900/30 px-4 py-3 text-sm text-red-200">
+              {error}
+            </div>
+          )}
+
+          {loading ? (
+            <div className="text-sm text-[var(--muted-foreground)]">Loading submitted photos…</div>
+          ) : photos.length === 0 ? (
+            <div className="text-sm text-[var(--muted-foreground)]">No submitted photos found.</div>
+          ) : (
+            <div className="space-y-5">
+              {photos.map((photo) => {
             const busy = Boolean(busyById[photo.id]);
             const debug = debugById[photo.id];
+            const selectedDate = topDateById[photo.id] || todayDateInput();
+            const isTopForSelectedDate = topPhotoByDate[selectedDate] === photo.id;
 
             return (
               <article key={photo.id} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4 space-y-4">
@@ -513,7 +1146,7 @@ export default function AdminPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <input
                         type="date"
-                        value={topDateById[photo.id] || todayDateInput()}
+                        value={selectedDate}
                         onChange={(event) =>
                           setTopDateById((prev) => ({ ...prev, [photo.id]: event.target.value }))
                         }
@@ -523,9 +1156,13 @@ export default function AdminPage() {
                       <button
                         onClick={() => void handleMarkTop(photo)}
                         disabled={busy}
-                        className="text-xs px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/30 disabled:opacity-40"
+                        className={`text-xs px-3 py-2 rounded-lg border disabled:opacity-40 ${
+                          isTopForSelectedDate
+                            ? 'border-orange-500/40 text-orange-300 hover:bg-orange-900/30'
+                            : 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/30'
+                        }`}
                       >
-                        Mark Top for Day
+                        {isTopForSelectedDate ? 'Unselect Top for Day' : 'Mark Top for Day'}
                       </button>
 
                       <button
@@ -584,6 +1221,91 @@ export default function AdminPage() {
             );
           })}
         </div>
+      )}
+        </>
+      ) : (
+        <>
+          <ManualReasonSection />
+
+          {error && (
+            <div className="rounded-lg border border-red-700 bg-red-900/30 px-4 py-3 text-sm text-red-200">
+              {error}
+            </div>
+          )}
+
+          {loading ? (
+            <div className="text-sm text-[var(--muted-foreground)]">Loading reasons…</div>
+          ) : reasons.length === 0 ? (
+            <div className="text-sm text-[var(--muted-foreground)]">No reasons found.</div>
+          ) : (
+            <div className="space-y-3">
+              {reasons.map((reason) => {
+                const busy = Boolean(busyById[reason.id]);
+                const selectedDate = topReasonDateById[reason.id] || todayDateInput();
+                const isTopForSelectedDate = topReasonByDate[selectedDate] === reason.reason_text;
+                return (
+                  <article 
+                    key={reason.id} 
+                    className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm break-words">{reason.reason_text}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-green-400">↑ {reason.upvotes}</span>
+                        <span className="text-xs text-red-400">↓ {reason.downvotes}</span>
+                      </div>
+                    </div>
+                    
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted-foreground)] mb-3">
+                      <span className="font-mono text-[11px]">{reason.id}</span>
+                      <span>•</span>
+                      <span>{formatTimestamp(reason.submitted_at)}</span>
+                      <span>•</span>
+                      <span className={reason.is_valid ? 'text-green-400' : 'text-red-400'}>
+                        {reason.is_valid ? 'valid' : 'invalid'}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="date"
+                        value={selectedDate}
+                        onChange={(event) =>
+                          setTopReasonDateById((prev) => ({ ...prev, [reason.id]: event.target.value }))
+                        }
+                        className="text-xs bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-md px-2 py-1.5"
+                      />
+
+                      <button
+                        onClick={() => void handleMarkTopReason(reason.id)}
+                        disabled={busy}
+                        className={`text-xs px-3 py-2 rounded-lg border disabled:opacity-40 ${
+                          isTopForSelectedDate
+                            ? 'border-orange-500/40 text-orange-300 hover:bg-orange-900/30'
+                            : 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/30'
+                        }`}
+                      >
+                        {isTopForSelectedDate ? 'Unselect Top for Day' : 'Mark Top for Day'}
+                      </button>
+
+                      <button
+                        onClick={() => void handleDeleteReason(reason.id)}
+                        disabled={busy}
+                        className="text-xs px-3 py-2 rounded-lg border border-red-500/40 text-red-300 hover:bg-red-900/30 disabled:opacity-40"
+                      >
+                        Delete Reason
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+        </>
       )}
       </main>
     </div>

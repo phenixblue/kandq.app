@@ -9,9 +9,10 @@ import PhotoUpload from '@/components/PhotoUpload';
 import PhotoGallery from '@/components/PhotoGallery';
 import TimeSlider from '@/components/TimeSlider';
 import ThemeToggle from '@/components/ThemeToggle';
+import ReasonsGallery from '@/components/ReasonsGallery';
 
-const DEFAULT_KING_COLOR = '#FFFFFF';
-const DEFAULT_QUEEN_COLOR = '#FFFFFF';
+const DEFAULT_KING_COLOR = '#38bdf8';
+const DEFAULT_QUEEN_COLOR = '#a78bfa';
 
 // Pre-computed star positions (module-level, not computed during render)
 const STARS = Array.from({ length: 60 }, (_, i) => ({
@@ -45,6 +46,8 @@ export default function Home() {
   const [showAuth, setShowAuth] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [isAdmin, setIsAdmin] = useState(false);
   const configured = isSupabaseConfigured();
 
   // Listen for auth changes
@@ -53,12 +56,30 @@ export default function Home() {
 
     supabase.auth.getSession().then(({ data }) => {
       setUser(data.session?.user ?? null);
+      // Check admin status by trying to fetch admin data
+      if (data.session?.access_token) {
+        fetch('/api/admin/photos', {
+          headers: { Authorization: `Bearer ${data.session.access_token}` },
+        })
+          .then((res) => setIsAdmin(res.status !== 403))
+          .catch(() => setIsAdmin(false));
+      }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+      // Check admin status when auth state changes
+      if (session?.access_token) {
+        fetch('/api/admin/photos', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+          .then((res) => setIsAdmin(res.status !== 403))
+          .catch(() => setIsAdmin(false));
+      } else {
+        setIsAdmin(false);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -96,8 +117,8 @@ export default function Home() {
                 aria-label={`Queen building light color: ${queenColor}`}
               />
             </div>
-            <span className="font-bold text-xl tracking-tight">KANDQ</span>
-            <span className="hidden sm:inline text-gray-500 text-sm">King &amp; Queen</span>
+            <span className="font-bold text-xl tracking-tight text-white dark:text-white">KANDQ</span>
+            <span className="hidden sm:inline text-white dark:text-gray-400 text-sm">King &amp; Queen</span>
           </div>
 
           <nav className="flex items-center gap-4">
@@ -105,7 +126,7 @@ export default function Home() {
               href="https://www.concourse-atl.com/"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-gray-400 hover:text-white text-sm transition-colors hidden sm:block"
+              className="text-gray-700 dark:text-gray-400 hover:text-black dark:hover:text-white text-sm transition-colors hidden sm:block"
             >
               About the Buildings
             </a>
@@ -122,12 +143,14 @@ export default function Home() {
               <>
                 {user ? (
                   <div className="flex items-center gap-3">
-                    <a
-                      href="/admin"
-                      className="text-gray-400 hover:text-white text-sm transition-colors"
-                    >
-                      Admin
-                    </a>
+                    {isAdmin && (
+                      <a
+                        href="/admin"
+                        className="text-gray-700 dark:text-gray-400 hover:text-black dark:hover:text-white text-sm transition-colors"
+                      >
+                        Admin
+                      </a>
+                    )}
                     <button
                       onClick={() => setShowUpload(true)}
                       className="bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
@@ -136,7 +159,7 @@ export default function Home() {
                     </button>
                     <button
                       onClick={handleSignOut}
-                      className="text-gray-400 hover:text-white text-sm transition-colors"
+                      className="text-gray-700 dark:text-gray-400 hover:text-black dark:hover:text-white text-sm transition-colors"
                     >
                       Sign Out
                     </button>
@@ -175,10 +198,10 @@ export default function Home() {
         </div>
 
         {/* Title */}
-        <h1 className="relative z-10 text-center mb-2 text-gray-400 text-sm tracking-[0.3em] uppercase font-medium">
+        <h1 className="relative z-10 text-center mb-2 text-lg tracking-[0.3em] uppercase font-medium text-[color:var(--foreground)]">
           The King and Queen · Sandy Springs, GA
         </h1>
-        <p className="relative z-10 text-center text-gray30 text-xs mb-16 md:mb-20 max-w-sm">
+        <p className="relative z-10 text-center text-base mb-16 md:mb-20 max-w-sm text-[color:var(--muted-foreground)]">
           What color are the lights tonight? Explore the history, submit your photos, and see how the colors have changed over time.
         </p>
 
@@ -231,12 +254,13 @@ export default function Home() {
 
       {/* ── Time Slider ────────────────────────────────────── */}
       <section className="max-w-6xl mx-auto w-full px-4 sm:px-6 py-8 border-t border-white/5">
-        <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+        <h2 className="text-sm font-bold text-[color:var(--foreground)] uppercase tracking-widest mb-4 flex items-center gap-2">
           <span>🕰</span> Time Travel
         </h2>
         {configured ? (
           <TimeSlider
             onColorsChange={handleColorsUpdate}
+            onDateChange={setSelectedDate}
             currentKingColor={kingColor}
             currentQueenColor={queenColor}
           />
@@ -247,36 +271,68 @@ export default function Home() {
         )}
       </section>
 
-      {/* ── Photo Gallery ───────────────────────────────────── */}
+      {/* ── Photo Gallery & Reasons ─────────────────────────── */}
       <section className="max-w-6xl mx-auto w-full px-4 sm:px-6 py-8 border-t border-white/5 flex-1">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-            <span>📸</span> Community Submissions
-          </h2>
-          {configured && !user && (
-            <button
-              onClick={() => setShowAuth(true)}
-              className="text-sm text-purple-400 hover:text-purple-300 transition-colors"
-            >
-              Sign in to vote &amp; submit
-            </button>
-          )}
-          {configured && user && (
-            <button
-              onClick={() => setShowUpload(true)}
-              className="text-sm text-purple-400 hover:text-purple-300 transition-colors"
-            >
-              + Add your photo
-            </button>
-          )}
+        <div className="mb-6">
+          <div className="flex items-center justify-end mb-6">
+            {configured && !user && (
+              <button
+                onClick={() => setShowAuth(true)}
+                className="text-sm text-purple-400 hover:text-purple-300 transition-colors"
+              >
+                Sign in to vote &amp; submit
+              </button>
+            )}
+          </div>
         </div>
 
         {configured ? (
-          <PhotoGallery
-            userId={user?.id ?? null}
-            refreshKey={galleryRefreshKey}
-            onColorsUpdate={handleColorsUpdate}
-          />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Photo Gallery - Takes 2/3 of width on lg screens */}
+            <div className="lg:col-span-2">
+              <div className="mb-3 flex items-center gap-5">
+                <h2 className="text-sm font-bold text-[color:var(--foreground)] uppercase tracking-widest flex items-center gap-2">
+                  <span>📸</span> Daily Submissions
+                </h2>
+                {user && (
+                  <button
+                    onClick={() => setShowUpload(true)}
+                    className="text-sm text-purple-400 hover:text-purple-300 transition-colors"
+                  >
+                    + Add photo
+                  </button>
+                )}
+              </div>
+              <PhotoGallery
+                userId={user?.id ?? null}
+                refreshKey={galleryRefreshKey}
+                onColorsUpdate={handleColorsUpdate}
+                filterDate={selectedDate}
+              />
+            </div>
+
+            {/* Reasons - Takes 1/3 of width on lg screens */}
+            <div className="lg:col-span-1">
+              <div className="mb-3 flex items-center gap-5">
+                <h2 className="text-sm font-bold text-[color:var(--foreground)] uppercase tracking-widest flex items-center gap-2">
+                  <span>💬</span> Reasons
+                </h2>
+                {user && (
+                  <button
+                    onClick={() => setShowUpload(true)}
+                    className="text-sm text-purple-400 hover:text-purple-300 transition-colors"
+                  >
+                    + Add reason
+                  </button>
+                )}
+              </div>
+              <ReasonsGallery
+                userId={user?.id ?? null}
+                refreshKey={galleryRefreshKey}
+                filterDate={selectedDate}
+              />
+            </div>
+          </div>
         ) : (
           <div className="text-center py-16">
             <p className="text-5xl mb-4">🌃</p>

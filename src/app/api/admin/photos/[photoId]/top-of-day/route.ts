@@ -40,7 +40,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const { data: photo, error: photoError } = await supabase
     .from('photos')
-    .select('id, king_color, queen_color')
+    .select('id, king_color, queen_color, color_reason')
     .eq('id', photoId)
     .single();
 
@@ -63,6 +63,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         photo_id: photo.id,
         king_color: photo.king_color,
         queen_color: photo.queen_color,
+        reason: photo.color_reason || null,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'date' }
@@ -73,4 +74,67 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   return NextResponse.json({ success: true, date: requestedDate, photoId: photo.id });
+}
+
+export async function DELETE(request: NextRequest, { params }: Params) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const { photoId } = await params;
+  const { supabase } = auth;
+
+  let requestedDate = '';
+  try {
+    const body = await request.json().catch(() => ({}));
+    requestedDate = getDateInput(body?.date);
+  } catch (error: unknown) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Invalid date.' },
+      { status: 400 }
+    );
+  }
+
+  const { data: targetRow, error: targetError } = await supabase
+    .from('color_history')
+    .select('id, reason')
+    .eq('date', requestedDate)
+    .eq('photo_id', photoId)
+    .maybeSingle();
+
+  if (targetError) {
+    return NextResponse.json({ error: targetError.message }, { status: 500 });
+  }
+
+  if (!targetRow) {
+    return NextResponse.json({ success: true, date: requestedDate, photoId, removed: false });
+  }
+
+  if (targetRow.reason) {
+    const { error: clearError } = await supabase
+      .from('color_history')
+      .update({
+        photo_id: null,
+        king_color: null,
+        queen_color: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', targetRow.id);
+
+    if (clearError) {
+      return NextResponse.json({ error: clearError.message }, { status: 500 });
+    }
+  } else {
+    const { error: deleteError } = await supabase
+      .from('color_history')
+      .delete()
+      .eq('id', targetRow.id);
+
+    if (deleteError) {
+      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    }
+  }
+
+  return NextResponse.json({ success: true, date: requestedDate, photoId, removed: true });
 }

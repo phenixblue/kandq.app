@@ -5,8 +5,10 @@ export interface Photo {
   storage_path: string;
   king_color: string | null;
   queen_color: string | null;
+  color_reason: string | null;
   is_valid: boolean;
   vote_score: number;
+  reason_vote_score: number;
   submitted_at: string;
   analyzed_at: string | null;
   user_email?: string;
@@ -25,6 +27,7 @@ export interface ColorHistory {
   date: string;
   king_color: string | null;
   queen_color: string | null;
+  reason: string | null;
   photo_id: string | null;
   updated_at: string;
 }
@@ -87,5 +90,9 @@ export interface BuildingColors {
 }
 
 export interface UserVotes {
+  [photoId: string]: 1 | -1;
+}
+
+export interface UserReasonVotes {
   [photoId: string]: 1 | -1;
 }

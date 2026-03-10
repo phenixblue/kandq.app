@@ -9,23 +9,67 @@ interface PhotoGalleryProps {
   userId: string | null;
   refreshKey: number;
   onColorsUpdate?: (kingColor: string, queenColor: string) => void;
+  filterDate?: string;
 }
 
-export default function PhotoGallery({ userId, refreshKey, onColorsUpdate }: PhotoGalleryProps) {
+export default function PhotoGallery({ userId, refreshKey, onColorsUpdate, filterDate }: PhotoGalleryProps) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [userVotes, setUserVotes] = useState<UserVotes>({});
+  const [lockedDates, setLockedDates] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const [nowMs, setNowMs] = useState(0);
+
+  useEffect(() => {
+    const updateNow = () => setNowMs(Date.now());
+    updateNow();
+
+    const timer = window.setInterval(updateNow, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const isVoteLocked = (submittedAt: string) => {
+    if (!nowMs) return false;
+    const submittedMs = new Date(submittedAt).getTime();
+    return nowMs - submittedMs > 24 * 60 * 60 * 1000;
+  };
+
+  const toEasternDateKey = (timestamp: string) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(timestamp));
+
+  const sortPhotos = (list: Photo[]) =>
+    [...list].sort((a, b) => {
+      if (b.vote_score !== a.vote_score) {
+        return b.vote_score - a.vote_score;
+      }
+      return new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime();
+    });
 
   useEffect(() => {
     let cancelled = false;
 
     void (async () => {
-      const { data, error: fetchError } = await supabase
+      let query = supabase
         .from('photos')
         .select('*')
-        .eq('is_valid', true)
+        .eq('is_valid', true);
+
+      // Filter by date if provided
+      if (filterDate) {
+        const startDate = `${filterDate}T00:00:00Z`;
+        const endDate = `${filterDate}T23:59:59Z`;
+        query = query
+          .gte('submitted_at', startDate)
+          .lte('submitted_at', endDate);
+      }
+
+      const { data, error: fetchError } = await query
         .order('vote_score', { ascending: false })
         .order('submitted_at', { ascending: false })
         .limit(30);
@@ -35,15 +79,9 @@ export default function PhotoGallery({ userId, refreshKey, onColorsUpdate }: Pho
       if (fetchError) {
         setError('Failed to load photos. Please try again.');
       } else {
-        const photoList = (data || []) as Photo[];
+        const photoList = sortPhotos((data || []) as Photo[]);
         setPhotos(photoList);
         setError(null);
-        if (photoList.length > 0 && onColorsUpdate) {
-          const top = photoList[0];
-          if (top.king_color && top.queen_color) {
-            onColorsUpdate(top.king_color, top.queen_color);
-          }
-        }
       }
       setLoading(false);
     })();
@@ -51,7 +89,42 @@ export default function PhotoGallery({ userId, refreshKey, onColorsUpdate }: Pho
     return () => {
       cancelled = true;
     };
-  }, [refreshKey, onColorsUpdate, retryKey]);
+  }, [refreshKey, onColorsUpdate, retryKey, filterDate]);
+
+  useEffect(() => {
+    if (!onColorsUpdate || photos.length === 0) return;
+    const top = photos[0];
+    if (top.king_color && top.queen_color) {
+      onColorsUpdate(top.king_color, top.queen_color);
+    }
+  }, [photos, onColorsUpdate]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('color_history')
+          .select('date, photo_id')
+          .not('photo_id', 'is', null);
+
+        if (cancelled) return;
+
+        if (!fetchError && data) {
+          // Get all dates that have a photo marked as top
+          const dates = new Set(data.map(entry => entry.date).filter(Boolean));
+          setLockedDates(dates);
+        }
+      } catch {
+        // Silently fail - this is just for display enhancement
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
 
   useEffect(() => {
     if (!userId) return;
@@ -80,20 +153,28 @@ export default function PhotoGallery({ userId, refreshKey, onColorsUpdate }: Pho
   const handleVote = async (photoId: string, vote: 1 | -1) => {
     if (!userId) return;
 
+    const targetPhoto = photos.find((photo) => photo.id === photoId);
+    if (!targetPhoto) return;
+    
+    const photoDate = toEasternDateKey(targetPhoto.submitted_at);
+    if (isVoteLocked(targetPhoto.submitted_at) || lockedDates.has(photoDate)) return;
+
     const existingVote = userVotes[photoId];
 
     // Optimistic update
     setPhotos((prev) =>
-      prev.map((p) => {
-        if (p.id !== photoId) return p;
-        let delta: number = vote;
-        if (existingVote === vote) {
-          delta = -vote as number;
-        } else if (existingVote) {
-          delta = vote * 2;
-        }
-        return { ...p, vote_score: p.vote_score + delta };
-      })
+      sortPhotos(
+        prev.map((p) => {
+          if (p.id !== photoId) return p;
+          let delta: number = vote;
+          if (existingVote === vote) {
+            delta = -vote as number;
+          } else if (existingVote) {
+            delta = vote * 2;
+          }
+          return { ...p, vote_score: p.vote_score + delta };
+        })
+      )
     );
 
     try {
@@ -121,21 +202,34 @@ export default function PhotoGallery({ userId, refreshKey, onColorsUpdate }: Pho
         if (response.ok && result.vote_score !== undefined) {
           // Update the photo with the server-calculated vote_score
           setPhotos((prev) =>
-            prev.map((p) => (p.id === photoId ? { ...p, vote_score: result.vote_score } : p))
+            sortPhotos(
+              prev.map((p) => (p.id === photoId ? { ...p, vote_score: result.vote_score } : p))
+            )
           );
         }
       }
     } catch (err) {
       console.error('Vote error:', err);
       // Revert optimistic update on error
-      const { data } = await supabase
+      let query = supabase
         .from('photos')
         .select('*')
-        .eq('is_valid', true)
+        .eq('is_valid', true);
+
+      if (filterDate) {
+        const startDate = `${filterDate}T00:00:00Z`;
+        const endDate = `${filterDate}T23:59:59Z`;
+        query = query
+          .gte('submitted_at', startDate)
+          .lte('submitted_at', endDate);
+      }
+
+      const { data } = await query
         .order('vote_score', { ascending: false })
+        .order('submitted_at', { ascending: false })
         .limit(30);
       if (data) {
-        setPhotos(data as Photo[]);
+        setPhotos(sortPhotos(data as Photo[]));
       }
     }
   };
@@ -174,15 +268,20 @@ export default function PhotoGallery({ userId, refreshKey, onColorsUpdate }: Pho
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      {photos.map((photo) => (
-        <PhotoCard
-          key={photo.id}
-          photo={photo}
-          userVote={userVotes[photo.id]}
-          onVote={handleVote}
-          isLoggedIn={Boolean(userId)}
-        />
-      ))}
+      {photos.map((photo) => {
+        const photoDate = toEasternDateKey(photo.submitted_at);
+        return (
+          <PhotoCard
+            key={photo.id}
+            photo={photo}
+            userVote={userVotes[photo.id]}
+            onVote={handleVote}
+            isLoggedIn={Boolean(userId)}
+            votesLocked={isVoteLocked(photo.submitted_at) || lockedDates.has(photoDate)}
+          />
+        );
+      })}
     </div>
   );
 }
+

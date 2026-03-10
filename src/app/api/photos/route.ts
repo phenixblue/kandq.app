@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   try {
     const supabase = getServiceClient();
     const body = await req.json();
-    const { url, storage_path, king_color, queen_color, user_id } = body;
+    const { url, storage_path, king_color, queen_color, color_reason, user_id } = body;
 
     if (!url || !storage_path || !user_id) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -50,9 +50,11 @@ export async function POST(req: NextRequest) {
         storage_path,
         king_color,
         queen_color,
+        color_reason,
         user_id,
         is_valid: true,
         vote_score: 0,
+        reason_vote_score: 0,
         analyzed_at: new Date().toISOString(),
       })
       .select()
@@ -68,6 +70,7 @@ export async function POST(req: NextRequest) {
           date: today,
           king_color,
           queen_color,
+          reason: color_reason || null,
           photo_id: data.id,
           updated_at: new Date().toISOString(),
         },

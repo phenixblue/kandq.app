@@ -6,6 +6,7 @@ import { ColorHistory } from '@/types';
 
 interface TimeSliderProps {
   onColorsChange: (kingColor: string, queenColor: string) => void;
+  onDateChange?: (date: string) => void;
   currentKingColor: string;
   currentQueenColor: string;
 }
@@ -23,6 +24,7 @@ const toEasternDateKey = (timestamp: string) =>
 
 export default function TimeSlider({
   onColorsChange,
+  onDateChange,
   currentKingColor,
   currentQueenColor,
 }: TimeSliderProps) {
@@ -97,6 +99,7 @@ export default function TimeSlider({
             date,
             king_color: photo.king_color,
             queen_color: photo.queen_color,
+            reason: null,
             photo_id: photo.id,
             updated_at: photo.submitted_at,
           });
@@ -104,14 +107,17 @@ export default function TimeSlider({
       }
 
       const dailyHistory = Array.from(byDate.values()).sort((a, b) =>
-        a.date < b.date ? 1 : a.date > b.date ? -1 : 0
+        a.date < b.date ? -1 : a.date > b.date ? 1 : 0
       );
 
       if (dailyHistory.length > 0) {
         setHistory(dailyHistory);
-        setSelectedIndex(0);
-        const latest = dailyHistory[0];
+        setSelectedIndex(dailyHistory.length - 1);
+        const latest = dailyHistory[dailyHistory.length - 1];
         onColorsChange(latest.king_color || DEFAULT_KING, latest.queen_color || DEFAULT_QUEEN);
+        if (onDateChange) {
+          onDateChange(latest.date);
+        }
       }
 
       setLoading(false);
@@ -130,11 +136,14 @@ export default function TimeSlider({
     const entry = history[clampedIndex];
     if (entry) {
       onColorsChange(entry.king_color || DEFAULT_KING, entry.queen_color || DEFAULT_QUEEN);
+      if (onDateChange) {
+        onDateChange(entry.date);
+      }
     }
   };
 
   const setToPresent = () => {
-    updateSelectedIndex(0);
+    updateSelectedIndex(history.length - 1);
   };
 
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -185,9 +194,9 @@ export default function TimeSlider({
             className="text-xs text-gray-500 uppercase tracking-wider hover:text-gray-300 transition-colors"
             title="Jump to present day"
           >
-            {selectedIndex === 0 ? 'Current' : formatDate(selectedEntry?.date || '')}
+            {selectedIndex === history.length - 1 ? 'Current' : formatDate(selectedEntry?.date || '')}
           </button>
-          {selectedIndex > 0 && (
+          {selectedIndex < history.length - 1 && (
             <span className="text-xs text-purple-400 bg-purple-900/30 px-2 py-0.5 rounded-full">
               Historical
             </span>
@@ -226,14 +235,14 @@ export default function TimeSlider({
           aria-label="Time travel slider"
         />
         <div className="flex justify-between text-xs text-gray-600 mt-1">
+          <span>Past</span>
           <button
             type="button"
             onClick={setToPresent}
             className="hover:text-gray-400 transition-colors"
           >
-            Present
+            Present →
           </button>
-          <span>← Past</span>
         </div>
         {!canSlide && (
           <p className="text-xs text-gray-500 mt-2">Add photos on another day to unlock time travel.</p>
