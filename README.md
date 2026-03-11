@@ -128,7 +128,7 @@ Build command and start behavior are already standard Next.js (`next build`, `ne
 This repository includes `.github/workflows/deploy-dev.yml` for dev environment deployments.
 
 Trigger behavior:
-- Runs when a PR is merged into the `dev` branch (`pull_request` closed + merged).
+- Runs on push to `dev` (typically the merge commit from a PR merge).
 - Can also be run manually via `workflow_dispatch` with `branch=dev`.
 
 Flow:
@@ -155,7 +155,7 @@ Notes:
 This repository includes `.github/workflows/deploy-prod.yml` for production deployments.
 
 Trigger behavior:
-- Runs when a PR is merged into the `main` branch (`pull_request` closed + merged).
+- Runs on push to `main` (typically the merge commit from a PR merge).
 - Can also be run manually via `workflow_dispatch` with `branch=main`.
 
 Flow:
