@@ -136,6 +136,8 @@ jobs:
           fi
           vercel curl "$HEALTHCHECK_URL" \
             --token "$VERCEL_TOKEN" \
+            --non-interactive \
+            -- \
             --fail \
             --silent \
             --show-error \
