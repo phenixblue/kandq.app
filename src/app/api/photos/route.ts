@@ -11,56 +11,19 @@ function getServiceClient() {
 }
 
 // GET /api/photos – list valid photos ordered by vote score
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
     const supabase = getServiceClient();
-    const filterDate = req.nextUrl.searchParams.get('date');
-
-    let query = supabase
+    const { data, error } = await supabase
       .from('photos')
       .select('*')
-      .eq('is_valid', true);
-
-    if (filterDate) {
-      const startDate = `${filterDate}T00:00:00.000Z`;
-      const endDate = `${filterDate}T23:59:59.999Z`;
-      query = query.gte('submitted_at', startDate).lte('submitted_at', endDate);
-    }
-
-    const { data, error } = await query
+      .eq('is_valid', true)
       .order('vote_score', { ascending: false })
       .order('submitted_at', { ascending: false })
       .limit(50);
 
     if (error) throw error;
-
-    const photoRows = data || [];
-
-    if (photoRows.length === 0) {
-      return NextResponse.json([]);
-    }
-
-    const paths = photoRows.map((row) => row.storage_path).filter(Boolean);
-    const signedUrlMap = new Map<string, string>();
-
-    if (paths.length > 0) {
-      const { data: signedUrls } = await supabase.storage
-        .from('kandq-photos')
-        .createSignedUrls(paths, 60 * 60);
-
-      (signedUrls || []).forEach((entry, index) => {
-        if (entry?.signedUrl) {
-          signedUrlMap.set(paths[index], entry.signedUrl);
-        }
-      });
-    }
-
-    const withSignedUrls = photoRows.map((row) => ({
-      ...row,
-      url: signedUrlMap.get(row.storage_path) || row.url,
-    }));
-
-    return NextResponse.json(withSignedUrls);
+    return NextResponse.json(data);
   } catch (err: unknown) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Internal server error' },
