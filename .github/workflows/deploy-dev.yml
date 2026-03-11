@@ -134,9 +134,41 @@ jobs:
             echo "DEV_HEALTHCHECK_URL secret is not set."
             exit 1
           fi
-          vercel curl "$HEALTHCHECK_URL" \
+
+          # vercel curl requires a relative path; if a full URL is provided,
+          # split it into deployment origin + request path.
+          path="$HEALTHCHECK_URL"
+          deployment_args=()
+
+          if [[ "$HEALTHCHECK_URL" =~ ^https?:// ]]; then
+            no_query="${HEALTHCHECK_URL%%\?*}"
+            query=""
+            if [[ "$HEALTHCHECK_URL" == *"?"* ]]; then
+              query="?${HEALTHCHECK_URL#*\?}"
+            fi
+
+            proto="${no_query%%://*}"
+            after_scheme="${no_query#*://}"
+            host="${after_scheme%%/*}"
+            deployment="${proto}://${host}"
+
+            if [[ "$after_scheme" == "$host" ]]; then
+              path="/${query}"
+              path="${path%\?}"
+            else
+              path_part="/${after_scheme#*/}"
+              path="${path_part}${query}"
+            fi
+
+            deployment_args=(--deployment "$deployment")
+          fi
+
+          vercel curl "$path" \
             --token "$VERCEL_TOKEN" \
             --non-interactive \
+            "${deployment_args[@]}" \
+            --scope "$VERCEL_ORG_ID" \
+            --yes \
             -- \
             --fail \
             --silent \
