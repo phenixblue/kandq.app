@@ -27,21 +27,32 @@ jobs:
       (github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'main') ||
       (github.event_name == 'push' && github.ref_name == 'main')
     runs-on: ubuntu-latest
+    environment: production
     env:
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.PROD_SUPABASE_ACCESS_TOKEN || secrets.SUPABASE_ACCESS_TOKEN }}
-      SUPABASE_DB_PASSWORD: ${{ secrets.PROD_SUPABASE_DB_PASSWORD || secrets.SUPABASE_DB_PASSWORD }}
-      SUPABASE_PROJECT_REF: ${{ secrets.PROD_SUPABASE_PROJECT_REF || secrets.SUPABASE_PROJECT_REF }}
+      PROD_SUPABASE_ACCESS_TOKEN: ${{ secrets.PROD_SUPABASE_ACCESS_TOKEN }}
+      PROD_SUPABASE_DB_PASSWORD: ${{ secrets.PROD_SUPABASE_DB_PASSWORD }}
+      PROD_SUPABASE_PROJECT_REF: ${{ secrets.PROD_SUPABASE_PROJECT_REF }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate required Supabase secrets
+      - name: Resolve Supabase credentials
         shell: bash
         run: |
           set -euo pipefail
-          [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || { echo "Missing secret: PROD_SUPABASE_ACCESS_TOKEN (or SUPABASE_ACCESS_TOKEN)"; exit 1; }
-          [[ -n "${SUPABASE_DB_PASSWORD:-}" ]] || { echo "Missing secret: PROD_SUPABASE_DB_PASSWORD (or SUPABASE_DB_PASSWORD)"; exit 1; }
-          [[ -n "${SUPABASE_PROJECT_REF:-}" ]] || { echo "Missing secret: PROD_SUPABASE_PROJECT_REF (or SUPABASE_PROJECT_REF)"; exit 1; }
+          token="${PROD_SUPABASE_ACCESS_TOKEN:-}"
+          password="${PROD_SUPABASE_DB_PASSWORD:-}"
+          project_ref="${PROD_SUPABASE_PROJECT_REF:-}"
+
+          [[ -n "$token" ]] || { echo "Missing environment secret: PROD_SUPABASE_ACCESS_TOKEN"; exit 1; }
+          [[ -n "$password" ]] || { echo "Missing environment secret: PROD_SUPABASE_DB_PASSWORD"; exit 1; }
+          [[ -n "$project_ref" ]] || { echo "Missing environment secret: PROD_SUPABASE_PROJECT_REF"; exit 1; }
+
+          {
+            echo "SUPABASE_ACCESS_TOKEN=$token"
+            echo "SUPABASE_DB_PASSWORD=$password"
+            echo "SUPABASE_PROJECT_REF=$project_ref"
+          } >> "$GITHUB_ENV"
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
@@ -61,22 +72,33 @@ jobs:
       (github.event_name == 'push' && github.ref_name == 'main')
     runs-on: ubuntu-latest
     needs: [deploy_supabase_prod]
+    environment: production
     env:
-      VERCEL_TOKEN: ${{ secrets.PROD_VERCEL_TOKEN || secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.PROD_VERCEL_ORG_ID || secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.PROD_VERCEL_PROJECT_ID || secrets.VERCEL_PROJECT_ID }}
+      PROD_VERCEL_TOKEN: ${{ secrets.PROD_VERCEL_TOKEN }}
+      PROD_VERCEL_ORG_ID: ${{ secrets.PROD_VERCEL_ORG_ID }}
+      PROD_VERCEL_PROJECT_ID: ${{ secrets.PROD_VERCEL_PROJECT_ID }}
       HEALTHCHECK_URL: ${{ secrets.PROD_HEALTHCHECK_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate required Vercel secrets
+      - name: Resolve Vercel credentials
         shell: bash
         run: |
           set -euo pipefail
-          [[ -n "${VERCEL_TOKEN:-}" ]] || { echo "Missing secret: PROD_VERCEL_TOKEN (or VERCEL_TOKEN)"; exit 1; }
-          [[ -n "${VERCEL_ORG_ID:-}" ]] || { echo "Missing secret: PROD_VERCEL_ORG_ID (or VERCEL_ORG_ID)"; exit 1; }
-          [[ -n "${VERCEL_PROJECT_ID:-}" ]] || { echo "Missing secret: PROD_VERCEL_PROJECT_ID (or VERCEL_PROJECT_ID)"; exit 1; }
+          token="${PROD_VERCEL_TOKEN:-}"
+          org_id="${PROD_VERCEL_ORG_ID:-}"
+          project_id="${PROD_VERCEL_PROJECT_ID:-}"
+
+          [[ -n "$token" ]] || { echo "Missing environment secret: PROD_VERCEL_TOKEN"; exit 1; }
+          [[ -n "$org_id" ]] || { echo "Missing environment secret: PROD_VERCEL_ORG_ID"; exit 1; }
+          [[ -n "$project_id" ]] || { echo "Missing environment secret: PROD_VERCEL_PROJECT_ID"; exit 1; }
+
+          {
+            echo "VERCEL_TOKEN=$token"
+            echo "VERCEL_ORG_ID=$org_id"
+            echo "VERCEL_PROJECT_ID=$project_id"
+          } >> "$GITHUB_ENV"
 
       - name: Setup Node
         uses: actions/setup-node@v4
