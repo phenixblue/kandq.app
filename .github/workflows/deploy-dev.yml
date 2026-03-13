@@ -1,0 +1,178 @@
+name: Deploy Dev Environment
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to deploy (dev only)
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+
+concurrency:
+  group: deploy-dev-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy_supabase_dev:
+    name: Deploy Supabase Migrations (Dev)
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'dev') ||
+      (github.event_name == 'push' && github.ref_name == 'dev')
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      DEV_SUPABASE_ACCESS_TOKEN: ${{ secrets.DEV_SUPABASE_ACCESS_TOKEN }}
+      DEV_SUPABASE_DB_PASSWORD: ${{ secrets.DEV_SUPABASE_DB_PASSWORD }}
+      DEV_SUPABASE_PROJECT_REF: ${{ secrets.DEV_SUPABASE_PROJECT_REF }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show run context
+        shell: bash
+        run: |
+          echo "event=${GITHUB_EVENT_NAME} actor=${GITHUB_ACTOR} ref=${GITHUB_REF}"
+
+      - name: Resolve Supabase credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="${DEV_SUPABASE_ACCESS_TOKEN:-}"
+          password="${DEV_SUPABASE_DB_PASSWORD:-}"
+          project_ref="${DEV_SUPABASE_PROJECT_REF:-}"
+
+          [[ -n "$token" ]] || { echo "Missing environment secret: DEV_SUPABASE_ACCESS_TOKEN"; exit 1; }
+          [[ -n "$password" ]] || { echo "Missing environment secret: DEV_SUPABASE_DB_PASSWORD"; exit 1; }
+          [[ -n "$project_ref" ]] || { echo "Missing environment secret: DEV_SUPABASE_PROJECT_REF"; exit 1; }
+
+          {
+            echo "SUPABASE_ACCESS_TOKEN=$token"
+            echo "SUPABASE_DB_PASSWORD=$password"
+            echo "SUPABASE_PROJECT_REF=$project_ref"
+          } >> "$GITHUB_ENV"
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Supabase project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Push database migrations
+        run: supabase db push --linked --password "$SUPABASE_DB_PASSWORD"
+
+  deploy_vercel_dev:
+    name: Deploy Vercel (Dev)
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'dev') ||
+      (github.event_name == 'push' && github.ref_name == 'dev')
+    runs-on: ubuntu-latest
+    needs: [deploy_supabase_dev]
+    environment: dev
+    env:
+      DEV_VERCEL_TOKEN: ${{ secrets.DEV_VERCEL_TOKEN }}
+      DEV_VERCEL_ORG_ID: ${{ secrets.DEV_VERCEL_ORG_ID }}
+      DEV_VERCEL_PROJECT_ID: ${{ secrets.DEV_VERCEL_PROJECT_ID }}
+      HEALTHCHECK_URL: ${{ secrets.DEV_HEALTHCHECK_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve Vercel credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="${DEV_VERCEL_TOKEN:-}"
+          org_id="${DEV_VERCEL_ORG_ID:-}"
+          project_id="${DEV_VERCEL_PROJECT_ID:-}"
+
+          [[ -n "$token" ]] || { echo "Missing environment secret: DEV_VERCEL_TOKEN"; exit 1; }
+          [[ -n "$org_id" ]] || { echo "Missing environment secret: DEV_VERCEL_ORG_ID"; exit 1; }
+          [[ -n "$project_id" ]] || { echo "Missing environment secret: DEV_VERCEL_PROJECT_ID"; exit 1; }
+
+          {
+            echo "VERCEL_TOKEN=$token"
+            echo "VERCEL_ORG_ID=$org_id"
+            echo "VERCEL_PROJECT_ID=$project_id"
+          } >> "$GITHUB_ENV"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel environment configuration (preview)
+        run: vercel pull --yes --environment=preview --token "$VERCEL_TOKEN"
+
+      - name: Build deployment artifacts
+        run: vercel build --token "$VERCEL_TOKEN"
+
+      - name: Deploy to Vercel preview
+        run: vercel deploy --prebuilt --token "$VERCEL_TOKEN"
+
+      - name: Post-deploy health check
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${HEALTHCHECK_URL:-}" ]]; then
+            echo "DEV_HEALTHCHECK_URL secret is not set."
+            exit 1
+          fi
+
+          # vercel curl requires a relative path; if a full URL is provided,
+          # split it into deployment origin + request path.
+          path="$HEALTHCHECK_URL"
+          deployment_args=()
+
+          if [[ "$HEALTHCHECK_URL" =~ ^https?:// ]]; then
+            no_query="${HEALTHCHECK_URL%%\?*}"
+            query=""
+            if [[ "$HEALTHCHECK_URL" == *"?"* ]]; then
+              query="?${HEALTHCHECK_URL#*\?}"
+            fi
+
+            proto="${no_query%%://*}"
+            after_scheme="${no_query#*://}"
+            host="${after_scheme%%/*}"
+            deployment="${proto}://${host}"
+
+            if [[ "$after_scheme" == "$host" ]]; then
+              path="/${query}"
+              path="${path%\?}"
+            else
+              path_part="/${after_scheme#*/}"
+              path="${path_part}${query}"
+            fi
+
+            deployment_args=(--deployment "$deployment")
+          fi
+
+          vercel curl "$path" \
+            --token "$VERCEL_TOKEN" \
+            --non-interactive \
+            "${deployment_args[@]}" \
+            --scope "$VERCEL_ORG_ID" \
+            --yes \
+            -- \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 8 \
+            --retry-delay 5 \
+            --retry-all-errors
