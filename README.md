@@ -123,6 +123,59 @@ Then copy values into `.env.local`.
 
 Build command and start behavior are already standard Next.js (`next build`, `next start`).
 
+### GitHub Actions Dev Deployment
+
+This repository includes `.github/workflows/deploy-dev.yml` for dev environment deployments.
+
+Trigger behavior:
+- Runs on push to `dev` (typically the merge commit from a PR merge).
+- Can also be run manually via `workflow_dispatch` with `branch=dev`.
+
+Flow:
+1. Deploy Supabase migrations to the linked Supabase dev project.
+2. Deploy the app to Vercel Preview.
+3. Run a post-deploy health check URL.
+
+Required GitHub repository secrets:
+- `DEV_SUPABASE_ACCESS_TOKEN`
+- `DEV_SUPABASE_PROJECT_REF`
+- `DEV_SUPABASE_DB_PASSWORD`
+- `DEV_VERCEL_TOKEN`
+- `DEV_VERCEL_ORG_ID`
+- `DEV_VERCEL_PROJECT_ID`
+- `DEV_HEALTHCHECK_URL`
+
+Notes:
+- Keep your Vercel project configured with dev/preview environment variables in Vercel settings.
+- Ensure Supabase credentials point to the development project, not production.
+- Dev health checks run through `vercel curl` (authenticated with `DEV_VERCEL_TOKEN`) for Vercel Authentication-protected environments.
+
+### GitHub Actions Production Deployment
+
+This repository includes `.github/workflows/deploy-prod.yml` for production deployments.
+
+Trigger behavior:
+- Runs on push to `main` (typically the merge commit from a PR merge).
+- Can also be run manually via `workflow_dispatch` with `branch=main`.
+
+Flow:
+1. Deploy Supabase migrations to the linked Supabase production project.
+2. Deploy the app to Vercel Production.
+3. Run a post-deploy health check URL.
+
+Required GitHub repository secrets:
+- `PROD_SUPABASE_ACCESS_TOKEN`
+- `PROD_SUPABASE_PROJECT_REF`
+- `PROD_SUPABASE_DB_PASSWORD`
+- `PROD_VERCEL_TOKEN`
+- `PROD_VERCEL_ORG_ID`
+- `PROD_VERCEL_PROJECT_ID`
+- `PROD_HEALTHCHECK_URL`
+
+Notes:
+- Use production-scoped credentials for all prod secrets.
+- Health checks currently use `curl` and will fail the workflow on non-2xx responses.
+
 ### Point to Hosted Supabase
 
 - Ensure DB schema/policies match migrations.
