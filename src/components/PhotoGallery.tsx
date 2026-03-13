@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Photo, UserVotes } from '@/types';
 import PhotoCard from './PhotoCard';
@@ -52,45 +52,46 @@ export default function PhotoGallery({ userId, refreshKey, onColorsUpdate, filte
       return new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime();
     });
 
+  const loadPhotos = useCallback(async () => {
+    const query = new URLSearchParams();
+    if (filterDate) {
+      query.set('date', filterDate);
+    }
+
+    const response = await fetch(`/api/photos${query.toString() ? `?${query.toString()}` : ''}`);
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(payload?.error || 'Failed to load photos.');
+    }
+
+    return sortPhotos((payload || []) as Photo[]);
+  }, [filterDate]);
+
   useEffect(() => {
     let cancelled = false;
 
     void (async () => {
-      let query = supabase
-        .from('photos')
-        .select('*')
-        .eq('is_valid', true);
-
-      // Filter by date if provided
-      if (filterDate) {
-        const startDate = `${filterDate}T00:00:00Z`;
-        const endDate = `${filterDate}T23:59:59Z`;
-        query = query
-          .gte('submitted_at', startDate)
-          .lte('submitted_at', endDate);
-      }
-
-      const { data, error: fetchError } = await query
-        .order('vote_score', { ascending: false })
-        .order('submitted_at', { ascending: false })
-        .limit(30);
-
-      if (cancelled) return;
-
-      if (fetchError) {
-        setError('Failed to load photos. Please try again.');
-      } else {
-        const photoList = sortPhotos((data || []) as Photo[]);
+      try {
+        const photoList = await loadPhotos();
+        if (cancelled) return;
         setPhotos(photoList);
         setError(null);
+      } catch {
+        if (!cancelled) {
+          setError('Failed to load photos. Please try again.');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
-      setLoading(false);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [refreshKey, onColorsUpdate, retryKey, filterDate]);
+  }, [refreshKey, retryKey, loadPhotos]);
 
   useEffect(() => {
     if (!onColorsUpdate || photos.length === 0) return;
@@ -214,25 +215,11 @@ export default function PhotoGallery({ userId, refreshKey, onColorsUpdate, filte
     } catch (err) {
       console.error('Vote error:', err);
       // Revert optimistic update on error
-      let query = supabase
-        .from('photos')
-        .select('*')
-        .eq('is_valid', true);
-
-      if (filterDate) {
-        const startDate = `${filterDate}T00:00:00Z`;
-        const endDate = `${filterDate}T23:59:59Z`;
-        query = query
-          .gte('submitted_at', startDate)
-          .lte('submitted_at', endDate);
-      }
-
-      const { data } = await query
-        .order('vote_score', { ascending: false })
-        .order('submitted_at', { ascending: false })
-        .limit(30);
-      if (data) {
-        setPhotos(sortPhotos(data as Photo[]));
+      try {
+        const photoList = await loadPhotos();
+        setPhotos(photoList);
+      } catch {
+        setError('Failed to sync photos after vote.');
       }
     }
   };
