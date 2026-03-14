@@ -1,4 +1,12 @@
 import { AnalysisBuildingDiagnostic, AnalysisDebugPixel, AnalysisDebugRegion, AnalysisResult } from '@/types';
+import {
+  computeImageLuminance,
+  isColoredRegion,
+  isNightScene,
+  relativeCrownY,
+  rgbToHex,
+  rgbToHsl,
+} from '@/lib/imageAnalysisUtils';
 
 interface ColorSample {
   color: string;
@@ -21,38 +29,6 @@ interface ComponentStats {
   sumB: number;
   score: number;
   sampledPoints: Array<{ x: number; y: number }>;
-}
-
-function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
-  const rn = r / 255;
-  const gn = g / 255;
-  const bn = b / 255;
-  const max = Math.max(rn, gn, bn);
-  const min = Math.min(rn, gn, bn);
-  const l = (max + min) / 2;
-  let h = 0;
-  let s = 0;
-
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case rn:
-        h = ((gn - bn) / d + (gn < bn ? 6 : 0)) / 6;
-        break;
-      case gn:
-        h = ((bn - rn) / d + 2) / 6;
-        break;
-      case bn:
-        h = ((rn - gn) / d + 4) / 6;
-        break;
-    }
-  }
-  return [h * 360, s * 100, l * 100];
-}
-
-function rgbToHex(r: number, g: number, b: number): string {
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 }
 
 function countNeighbors(mask: Uint8Array, width: number, height: number, x: number, y: number): number {
@@ -230,6 +206,7 @@ function extractBuildingCrownColor(
   analysisHeight: number
 ): {
   aggregate: ColorSample;
+  crownTopY: number | undefined;
   debugRegions: AnalysisDebugRegion[];
   debugPixels: AnalysisDebugPixel[];
   candidateComponents: number;
@@ -373,8 +350,15 @@ function extractBuildingCrownColor(
         confidence: 0,
       };
 
+  // Topmost Y of the highest-scoring selected crown blob (used for king/queen
+  // building height-based disambiguation).
+  const crownTopY: number | undefined = selected.length > 0
+    ? relativeCrownY(Math.min(...selected.map((c) => c.minY)), analysisHeight)
+    : undefined;
+
   return {
     aggregate,
+    crownTopY,
     debugRegions,
     debugPixels,
     candidateComponents: sorted.length,
@@ -383,7 +367,7 @@ function extractBuildingCrownColor(
 }
 
 function isColoredLight(sample: ColorSample): boolean {
-  return sample.saturation > 18 && sample.coloredPixels >= 35;
+  return isColoredRegion(sample.saturation, sample.coloredPixels);
 }
 
 function getFailureReason(
@@ -411,19 +395,24 @@ function buildDiagnostic(
   sample: ColorSample,
   passed: boolean,
   candidateComponents: number,
-  selectedComponents: number
+  selectedComponents: number,
+  crownTopY: number | undefined,
+  extraReason?: string
 ): AnalysisBuildingDiagnostic {
+  const baseReason = passed
+    ? 'Detection passed.'
+    : getFailureReason(sample, candidateComponents, selectedComponents);
+
   return {
     building,
     passed,
-    reason: passed
-      ? 'Detection passed.'
-      : getFailureReason(sample, candidateComponents, selectedComponents),
+    reason: extraReason ? `${baseReason} ${extraReason}` : baseReason,
     saturation: sample.saturation,
     coloredPixels: sample.coloredPixels,
     confidence: sample.confidence,
     candidateComponents,
     selectedComponents,
+    crownTopY,
   };
 }
 
@@ -446,6 +435,12 @@ export async function analyzeImage(file: File): Promise<AnalysisResult> {
       canvas.width = Math.round(img.width * scale);
       canvas.height = Math.round(img.height * scale);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      // --- Night detection ---
+      // Sample the full image to determine ambient brightness.
+      const fullData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      const avgLuminance = computeImageLuminance(fullData);
+      const isNight = isNightScene(avgLuminance);
 
       // Analyze upper 60% of image to tolerate lower framing
       const analysisHeight = Math.max(1, Math.floor(canvas.height * 0.6));
@@ -476,21 +471,46 @@ export async function analyzeImage(file: File): Promise<AnalysisResult> {
 
       const kingValid = isColoredLight(kingResult);
       const queenValid = isColoredLight(queenResult);
-      const isValid = kingValid || queenValid;
+
+      // --- King / Queen building disambiguation ---
+      // The King building (Willis Tower) is taller, so its illuminated crown
+      // should appear higher in the frame (smaller crownTopY) than the Queen
+      // building (Trump Tower). When both crowns are detected and the king crown
+      // is unexpectedly LOWER than the queen crown by a significant margin, flag
+      // the likely cause so it can be surfaced in diagnostics.
+      let kingExtraReason: string | undefined;
+      let queenExtraReason: string | undefined;
+
+      const kingY = kingAnalysis.crownTopY;
+      const queenY = queenAnalysis.crownTopY;
+      if (kingY !== undefined && queenY !== undefined && kingY > queenY + 0.15) {
+        const warning =
+          'Warning: King crown detected lower in the frame than Queen crown — buildings may be swapped or photo is unusual.';
+        kingExtraReason = warning;
+        queenExtraReason = warning;
+      }
+
+      // A daytime photo is always invalid regardless of colour detection.
+      const isValid = isNight && (kingValid || queenValid);
+
       const confidence = Math.min(1, (kingResult.confidence + queenResult.confidence) / 2);
       const kingDiagnostic = buildDiagnostic(
         'king',
         kingResult,
-        kingValid,
+        kingValid && isNight,
         kingAnalysis.candidateComponents,
-        kingAnalysis.selectedComponents
+        kingAnalysis.selectedComponents,
+        kingAnalysis.crownTopY,
+        kingExtraReason
       );
       const queenDiagnostic = buildDiagnostic(
         'queen',
         queenResult,
-        queenValid,
+        queenValid && isNight,
         queenAnalysis.candidateComponents,
-        queenAnalysis.selectedComponents
+        queenAnalysis.selectedComponents,
+        queenAnalysis.crownTopY,
+        queenExtraReason
       );
 
       URL.revokeObjectURL(url);
@@ -499,6 +519,7 @@ export async function analyzeImage(file: File): Promise<AnalysisResult> {
         kingColor: kingValid ? kingResult.color : '#808080',
         queenColor: queenValid ? queenResult.color : '#808080',
         isValid,
+        isNight,
         confidence,
         diagnostics: {
           king: kingDiagnostic,
@@ -507,6 +528,7 @@ export async function analyzeImage(file: File): Promise<AnalysisResult> {
         debug: {
           canvasWidth: canvas.width,
           canvasHeight: canvas.height,
+          avgLuminance,
           regions: [...kingAnalysis.debugRegions, ...queenAnalysis.debugRegions],
           pixels: [...kingAnalysis.debugPixels, ...queenAnalysis.debugPixels],
         },

@@ -38,6 +38,8 @@ export interface AnalysisResult {
   kingColor: string;
   queenColor: string;
   isValid: boolean;
+  /** True when the image appears to be a nighttime scene (building lights visible). */
+  isNight: boolean;
   confidence: number;
   diagnostics?: AnalysisDiagnostics;
   debug?: AnalysisDebugData;
@@ -52,6 +54,12 @@ export interface AnalysisBuildingDiagnostic {
   confidence: number;
   candidateComponents: number;
   selectedComponents: number;
+  /**
+   * Relative vertical position (0 = image top, 1 = bottom of analysis region)
+   * of the topmost detected crown blob. Used to compare king vs. queen crown
+   * height for building disambiguation. Undefined when no crown was detected.
+   */
+  crownTopY?: number;
 }
 
 export interface AnalysisDiagnostics {
@@ -82,6 +90,8 @@ export interface AnalysisDebugPixel {
 export interface AnalysisDebugData {
   canvasWidth: number;
   canvasHeight: number;
+  /** Average perceived luminance (0–255) of the full image; used for night detection. */
+  avgLuminance: number;
   regions: AnalysisDebugRegion[];
   pixels: AnalysisDebugPixel[];
 }
