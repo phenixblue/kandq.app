@@ -439,6 +439,30 @@ export default function PhotoUpload({ userId, onSuccess, onClose }: PhotoUploadP
                           </span>
                         </div>
 
+                        {/* Night detection status */}
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full border ${
+                              analysisResult.isNight
+                                ? 'text-blue-300 border-blue-700/70 bg-blue-900/30'
+                                : 'text-yellow-300 border-yellow-700/70 bg-yellow-900/30'
+                            }`}
+                          >
+                            {analysisResult.isNight ? '🌙 Night scene' : '☀️ Daytime scene'}
+                          </span>
+                          {analysisResult.debug && (
+                            <span className="text-xs text-gray-500">
+                              avg luminance: {Math.round(analysisResult.debug.avgLuminance)}
+                            </span>
+                          )}
+                        </div>
+                        {!analysisResult.isNight && (
+                          <p className="text-xs text-yellow-400/80">
+                            This photo appears to be taken during daylight. Building crown lights are
+                            typically only visible at night.
+                          </p>
+                        )}
+
                         {analysisResult.diagnostics && (
                           <div className="rounded-lg border border-gray-700 bg-gray-900/40 p-3 space-y-2">
                             <p className="text-xs font-semibold text-gray-300">Detection diagnostics</p>
@@ -458,6 +482,7 @@ export default function PhotoUpload({ userId, onSuccess, onClose }: PhotoUploadP
                                   </span>
                                   <span className="text-gray-500">
                                     sat {Math.round(diag.saturation)} · px {diag.coloredPixels} · blobs {diag.selectedComponents}/{diag.candidateComponents}
+                                    {diag.crownTopY !== undefined && ` · crown y ${Math.round(diag.crownTopY * 100)}%`}
                                   </span>
                                 </div>
                                 {!diag.passed && <p className="text-gray-400 ml-14">{diag.reason}</p>}
